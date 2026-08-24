@@ -37,6 +37,13 @@ if not wav.exists():
 out = pathlib.Path.home() / "video" / "out" / f"{wav.stem}.txt"
 out.parent.mkdir(parents=True, exist_ok=True)
 
+# Sidecar legível por máquina: início, fim e texto de cada segmento, em
+# segundos com casas decimais. O .txt existe para o humano colar no chat e
+# só carrega o início arredondado ao segundo; a segmentação fala/música
+# precisa do fim e da precisão sub-segundo para medir os gaps.
+tsv = pathlib.Path.home() / "video" / "work" / f"{wav.stem}.segments.tsv"
+tsv.parent.mkdir(parents=True, exist_ok=True)
+
 # Baixa/carrega o modelo primeiro — falha aqui é de rede, não de device
 try:
     model = WhisperModel(args.model, device="cuda", compute_type="float16")
@@ -61,10 +68,14 @@ def hms(seconds: float) -> str:
     s = int(seconds)
     return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
 
-with out.open("w", encoding="utf-8") as f:
+with out.open("w", encoding="utf-8") as f, tsv.open("w", encoding="utf-8") as g:
+    g.write("start\tend\ttext\n")
     for seg in segments:
-        line = f"[{hms(seg.start)}] {seg.text.strip()}"
+        texto = seg.text.strip()
+        line = f"[{hms(seg.start)}] {texto}"
         f.write(line + "\n")
+        g.write(f"{seg.start:.3f}\t{seg.end:.3f}\t{texto}\n")
         print(line)
 
 print(f"\nTranscrição: {out}")
+print(f"Segmentos:   {tsv}")

@@ -146,6 +146,36 @@ acurácia. Sem sétimas, extensões ou inversões — inútil para harmonia func
 Alternativa adotada: o autor **já sabe os acordes**; o que falta é *quando*. A narração
 resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o timestamp.
 
+## Documentos
+
+- `docs/00-plano-inicial.md` — registro histórico. **Superado.** Descreve o
+  auto-editor como parte do escopo; foi removido. Não seguir.
+- `docs/01-arquitetura-segmentacao.md` — arquitetura da Fase 1. Proposta, com
+  hipótese a validar antes de implementar.
+
+## Segmentação fala/música (Fase 1 — proposta)
+
+A transcrição particiona o vídeo em duas classes: onde há texto é FALA, onde
+não há é MÚSICA. Cada classe recebe cadeia de processamento própria (denoise,
+compressão, corte, crop vertical, overlay), e os segmentos são reunidos ao final.
+
+Supera a regra defensiva anterior ("a transcrição diz onde não cortar").
+
+**Não implementar antes de medir a zona cinzenta** — ver critério em
+`docs/01-arquitetura-segmentacao.md`. Fala sobre música, notas decaindo e
+alucinação do Whisper podem tornar a fronteira frágil demais.
+
+Medido em 24/08/2026 no `20260824_135542` (`scripts/segmenta.py`): zona cinzenta
+3,0%, abaixo do critério — mas com **uma única fronteira medível**, num episódio
+que é o caso favorável extremo. O custo é por fronteira (~4,5s), não por minuto:
+a regra só se sustenta com alternância fala/música mais espaçada que ~45s.
+**Não avançar para o passo 2** sem medir episódios com alternância real e sem
+adotar `word_timestamps` + os intervalos do Silero VAD, que já roda e é
+descartado. Detalhes em `docs/01-arquitetura-segmentacao.md`.
+
+**Pré-requisito:** todo segmento precisa terminar em 1920x1080, 60 fps CFR,
+48 kHz, yuv420p. Divergência quebra o concat.
+
 ## Pendências conhecidas
 
 - [x] ~~Áudio saindo a 96 kHz~~ — resolvido com `-ar 48000` na saída de áudio de
