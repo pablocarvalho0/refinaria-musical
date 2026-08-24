@@ -41,6 +41,8 @@ echo
 #    -r 60           força CFR; o Android grava VFR, que causa
 #                    dessincronia de áudio ao longo da edição
 #    loudnorm        normaliza volume para o alvo do YouTube
+#    -ar 48000       o loudnorm opera a 192 kHz internamente e vaza taxa
+#                    dobrada (96 kHz) se a saida nao for fixada
 #    +faststart      move o índice para o começo do arquivo:
 #                    upload e streaming começam sem baixar tudo
 # ---------------------------------------------------------------
@@ -50,7 +52,7 @@ time ffmpeg -y -hide_banner -loglevel warning -stats \
   -vf "scale=1920:1080" -r 60 \
   -c:v libx264 -crf "$CRF" -preset "$PRESET" -pix_fmt yuv420p \
   -af "loudnorm=I=${LUFS}:TP=-1.5:LRA=11" \
-  -c:a aac -b:a 192k \
+  -c:a aac -b:a 192k -ar 48000 \
   -movflags +faststart \
   "$OUT/${BASE}_norm.mp4"
 
@@ -71,6 +73,6 @@ echo "-----------------------------------------------"
 ls -lh "$IN" "$OUT/${BASE}_norm.mp4"
 echo
 echo "Proximo passo:"
-echo "  python ~/video/scripts/transcreve.py $WORK/${BASE}.wav"
+echo "  ~/video/scripts/transcreve.sh $WORK/${BASE}.wav"
 echo
 echo "Depois cole a transcricao no chat para gerar a lista de cortes."

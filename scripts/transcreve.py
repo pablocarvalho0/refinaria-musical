@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """
 Transcreve áudio com faster-whisper e grava .txt com timestamps.
-Uso: python transcreve.py ~/video/work/20260824_135542.wav [--model medium]
+Entrada oficial: scripts/transcreve.sh (exporta LD_LIBRARY_PATH antes do boot).
+Uso: ./transcreve.sh ~/video/work/20260824_135542.wav [--model medium]
 """
 import argparse
 import pathlib
 import sys
 import os
 
+# O LD_LIBRARY_PATH das libs CUDA é responsabilidade do wrapper
+# scripts/transcreve.sh — o linker dinâmico lê a variável no boot do
+# processo, então não há como corrigir isso daqui. Só avisamos.
 try:
     import nvidia
     _nv = nvidia.__path__[0]          # namespace package: __file__ é None
-    _libs = f"{_nv}/cublas/lib:{_nv}/cudnn/lib"
-    if _libs not in os.environ.get("LD_LIBRARY_PATH", ""):
-        os.environ["LD_LIBRARY_PATH"] = f"{_libs}:{os.environ.get('LD_LIBRARY_PATH','')}"
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+    if f"{_nv}/cublas/lib" not in os.environ.get("LD_LIBRARY_PATH", ""):
+        print("aviso: LD_LIBRARY_PATH sem as libs CUDA — a inferência vai "
+              "falhar. Use scripts/transcreve.sh em vez de chamar este "
+              "arquivo direto.", file=sys.stderr)
 except ImportError:
     pass
 

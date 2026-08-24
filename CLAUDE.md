@@ -148,13 +148,20 @@ resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o times
 
 ## Pendências conhecidas
 
-- [ ] **Áudio saindo a 96 kHz** em vez de 48 kHz. O `loudnorm` opera a 192 kHz
-      internamente e vaza taxa dobrada. Corrigir com `-ar 48000` na saída de áudio,
-      em `processa.sh` e `corta.sh`.
-- [ ] **`corta.sh` nunca foi executado.** É a única peça da cadeia sem validação.
-      Ao testar, verificar as emendas entre trechos (salto de áudio, frame preto).
-- [ ] `LD_LIBRARY_PATH` ainda não está permanente — preferir um wrapper
-      `transcreve.sh` a truque de `os.execv` dentro do Python.
+- [x] ~~Áudio saindo a 96 kHz~~ — resolvido com `-ar 48000` na saída de áudio de
+      `processa.sh` e `corta.sh`. O `_norm.mp4` antigo (gravado antes da correção)
+      ainda está a 96 kHz; reprocessar se for publicar.
+- [x] ~~`corta.sh` nunca foi executado~~ — validado em 24/08/2026 no
+      `20260824_135542_norm.mp4` com dois trechos. Resultados: duração exata
+      (8s + 14s = 22,000s, 1320 frames a 60 fps), PTS de vídeo e áudio contínuos,
+      I-frame na emenda (o x264 detecta a troca de cena e força IDR), nenhum frame
+      preto, nenhum transiente de áudio no ponto de emenda (pico desce
+      −19,0 → −21,3 → −21,9 dBFS), sem erro de decodificação. Emenda seca, sem
+      ghosting. Reencode de 22s levou 20s.
+- [x] ~~`LD_LIBRARY_PATH` não permanente~~ — agora em `scripts/transcreve.sh`, que
+      exporta a variável antes de o interpretador subir e faz `exec` no
+      `transcreve.py`. O truque de `os.execv` foi removido; o Python só avisa se for
+      chamado direto sem as libs no caminho.
 - [ ] Marcar idioma do áudio: `-metadata:s:a:0 language=por`
       (o metadado do Samsung vem como `eng`).
 - [ ] Glossário de correção de transcrição ainda não existe.

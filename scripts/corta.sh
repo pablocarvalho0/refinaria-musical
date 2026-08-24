@@ -19,6 +19,11 @@ LISTA="${2:?uso: $0 <video.mp4> <cortes.txt>}"
 [[ -f "$LISTA" ]] || { echo "Lista não encontrada: $LISTA" >&2; exit 1; }
 
 BASE=$(basename "$IN"); BASE="${BASE%.*}"
+# Tira o sufixo do passo anterior para não acumular: o corte de um
+# _norm.mp4 sai como _final.mp4, não _norm_final.mp4. Só o _norm é
+# removido — tirar o _final também faria a saída colidir com a entrada
+# ao reaplicar um corte, e o ffmpeg sobrescreveria o próprio fonte.
+BASE="${BASE%_norm}"
 OUT="$HOME/video/out"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -59,7 +64,7 @@ ffmpeg -y -hide_banner -loglevel warning -stats \
   -filter_complex_script "$TMP/filtro.txt" \
   -map "[outv]" -map "[outa]" \
   -c:v libx264 -crf 23 -preset fast -pix_fmt yuv420p \
-  -c:a aac -b:a 192k \
+  -c:a aac -b:a 192k -ar 48000 \
   -movflags +faststart \
   "$OUT/${BASE}_final.mp4"
 
