@@ -14,6 +14,9 @@ httpx==0.28.1
 huggingface_hub==1.28.0
 idna==3.19
 numpy==2.5.2
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cuda-nvrtc-cu12==12.9.86
+nvidia-cudnn-cu12==9.24.0.43
 onnxruntime==1.29.0
 packaging==26.3
 protobuf==7.36.0
