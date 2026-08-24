@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
-# Pipeline Fase 0 — corte de silêncio + normalização de áudio + extração p/ transcrição
+# Pipeline Fase 0 — v2
+#
+# Mudança em relação à v1: o auto-editor saiu.
+# Motivo: corte por energia de áudio não distingue pausa de fala (lixo)
+# de pausa musical (conteúdo). Num vídeo de violão ele corta justamente
+# onde não deve, e devolveu só 2% de redução no teste. O corte agora é
+# semântico, feito a partir da transcrição, num passo separado.
+#
+# Resultado: um único reencode em vez de três. Menos perda de geração,
+# menos tempo, arquivo menor.
+#
 # Uso: ./processa.sh ~/video/inbox/20260824_135542.mp4
 
 set -euo pipefail
@@ -12,57 +22,55 @@ WORK="$HOME/video/work"
 OUT="$HOME/video/out"
 mkdir -p "$WORK" "$OUT"
 
+# Parâmetros ajustáveis via variável de ambiente
+CRF="${CRF:-23}"        # 18=quase sem perda, 23=padrão, 28=pequeno
+PRESET="${PRESET:-fast}"
+LUFS="${LUFS:--14}"     # -14 é o alvo do YouTube
+
 echo "==> Fonte: $IN"
-ffprobe -v error -show_entries format=duration:stream=width,height,r_frame_rate \
+ffprobe -v error -show_entries format=duration:stream=width,height,codec_name \
         -of default=noprint_wrappers=1 "$IN"
+echo
 
 # ---------------------------------------------------------------
-# 1. Corte de silêncio
-#    Trabalha no arquivo original. --margin preserva 0.3s antes e
-#    depois de cada trecho com fala, senão o corte come o início
-#    das palavras.
+# 1. Encode único: 4K HEVC -> 1080p H.264 + áudio normalizado
+#
+#    -hwaccel cuda   decodifica HEVC na GPU (a parte cara)
+#    libx264         encoda no CPU: 4x menor que o NVENC no mesmo
+#                    CRF, medido nos nossos testes
+#    -r 60           força CFR; o Android grava VFR, que causa
+#                    dessincronia de áudio ao longo da edição
+#    loudnorm        normaliza volume para o alvo do YouTube
+#    +faststart      move o índice para o começo do arquivo:
+#                    upload e streaming começam sem baixar tudo
 # ---------------------------------------------------------------
-echo "==> 1/3  Cortando silêncio"
-auto-editor "$IN" \
-  --margin 0.3sec \
-  --no-open \
-  -o "$WORK/${BASE}_cut.mp4"
+echo "==> 1/2  Normalizando (1080p60, x264 crf=$CRF, audio $LUFS LUFS)"
+time ffmpeg -y -hide_banner -loglevel warning -stats \
+  -hwaccel cuda -i "$IN" \
+  -vf "scale=1920:1080" -r 60 \
+  -c:v libx264 -crf "$CRF" -preset "$PRESET" -pix_fmt yuv420p \
+  -af "loudnorm=I=${LUFS}:TP=-1.5:LRA=11" \
+  -c:a aac -b:a 192k \
+  -movflags +faststart \
+  "$OUT/${BASE}_norm.mp4"
 
 # ---------------------------------------------------------------
-# 2. Normalização de áudio + reencode do vídeo
-#    loudnorm alvo -14 LUFS (padrão YouTube).
-#    NVENC na GPU; se falhar, cai pro libx264 no CPU.
+# 2. Áudio para transcrição
+#    16 kHz mono é o formato nativo do Whisper. Extraído do arquivo
+#    normalizado para os timestamps baterem com o vídeo de trabalho.
 # ---------------------------------------------------------------
-echo "==> 2/3  Normalizando áudio e reencodando"
-if ! ffmpeg -y -hide_banner -loglevel warning -stats \
-      -hwaccel cuda -i "$WORK/${BASE}_cut.mp4" \
-      -af "loudnorm=I=-14:TP=-1.5:LRA=11" \
-      -c:v h264_nvenc -preset p5 -rc vbr -cq 23 -b:v 0 \
-      -c:a aac -b:a 192k \
-      "$OUT/${BASE}_final.mp4"; then
-  echo "    NVENC falhou — refazendo no CPU"
-  ffmpeg -y -hide_banner -loglevel warning -stats \
-      -i "$WORK/${BASE}_cut.mp4" \
-      -af "loudnorm=I=-14:TP=-1.5:LRA=11" \
-      -c:v libx264 -crf 23 -preset veryfast \
-      -c:a aac -b:a 192k \
-      "$OUT/${BASE}_final.mp4"
-fi
-
-# ---------------------------------------------------------------
-# 3. Áudio para transcrição
-#    Extraído do vídeo JÁ CORTADO, para os timestamps baterem
-#    com o que vai ao ar. 16 kHz mono é o que o Whisper espera.
-# ---------------------------------------------------------------
-echo "==> 3/3  Extraindo áudio"
+echo
+echo "==> 2/2  Extraindo audio para transcricao"
 ffmpeg -y -hide_banner -loglevel error \
-  -i "$OUT/${BASE}_final.mp4" \
+  -i "$OUT/${BASE}_norm.mp4" \
   -vn -ac 1 -ar 16000 \
   "$WORK/${BASE}.wav"
 
 echo
-echo "Vídeo:  $OUT/${BASE}_final.mp4"
-echo "Áudio:  $WORK/${BASE}.wav"
-ls -lh "$IN" "$OUT/${BASE}_final.mp4"
+echo "-----------------------------------------------"
+ls -lh "$IN" "$OUT/${BASE}_norm.mp4"
 echo
-echo "Próximo: python ~/video/scripts/transcreve.py $WORK/${BASE}.wav"
+echo "Proximo passo:"
+echo "  python ~/video/scripts/transcreve.py $WORK/${BASE}.wav"
+echo
+echo "Depois cole a transcricao no chat para gerar a lista de cortes."
