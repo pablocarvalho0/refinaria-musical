@@ -73,7 +73,8 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 ~/video/
 ├── inbox/      # chega do celular via Syncthing (Receive Only). NÃO editar.
 ├── work/       # intermediários e .wav. Descartável.
-├── out/        # entregáveis: _norm.mp4, _audio.mp4, _final.mp4, .txt
+├── out/        # _norm.mp4 (trabalho: video pronto, audio cru),
+│            # _audio.mp4 e _final.mp4 (entregaveis), .txt
 ├── scripts/    # versionado
 ├── models/     # modelos Whisper baixados. Descartável (redownload).
 └── .venv/      # ignorado pelo git
@@ -84,23 +85,31 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 
 ## Fluxo
 
+**Cada script tem uma responsabilidade só.** O `processa.sh` cuida do vídeo,
+o `audio.sh` cuida do áudio, e eles não se sobrepõem. O `_norm.mp4` é arquivo
+de trabalho — vídeo pronto, áudio ainda cru. O entregável é o `_audio.mp4`.
+
 ```bash
 cd ~/video && source .venv/bin/activate
 
-# 1. Normaliza: 4K HEVC -> 1080p60 H.264 + áudio a -14 LUFS + extrai .wav
+# 1. Vídeo: 4K HEVC -> 1080p60 H.264. O áudio é copiado, não tratado.
+#    Também extrai o .wav de 16 kHz para a transcrição.
 ./scripts/processa.sh ~/video/inbox/<arquivo>.mp4
 
-# 2. Transcreve (GPU)
-./scripts/transcreve.sh ~/video/work/<arquivo>.wav
+# 2. Transcreve (GPU). SEMPRE do .wav do _norm, nunca do áudio tratado.
+./scripts/transcreve.sh ~/video/work/<arquivo>.wav --model large-v3
 
-# 3. Humano cola a transcrição no chat -> recebe cortes.txt
+# 3. Classifica fala/música e mede a zona cinzenta
+python scripts/segmenta.py ~/video/work/<arquivo>.wav   # -> work/segmentos.txt
 
-# 4. Aplica os cortes
-./scripts/corta.sh ~/video/out/<arquivo>_norm.mp4 ~/video/work/cortes.txt
+# 4. Áudio. Se a zona cinzenta passar de 10%, use --uniforme.
+./scripts/audio.sh ~/video/out/<arquivo>_norm.mp4              # por classe
+./scripts/audio.sh ~/video/out/<arquivo>_norm.mp4 --uniforme   # classe única
 
-# 5. Tratamento de áudio por classe (opcional, ver Fase 1)
-python scripts/segmenta.py ~/video/work/<arquivo>.wav   # gera work/segmentos.txt
-./scripts/audio.sh ~/video/work/<arquivo>.mp4           # gera out/<arquivo>_audio.mp4
+# 5. Humano cola a transcrição no chat -> recebe cortes.txt
+
+# 6. Aplica os cortes ao entregável
+./scripts/corta.sh ~/video/out/<arquivo>_audio.mp4 ~/video/work/cortes.txt
 
 # Medir loudness de qualquer arquivo, separando fala de música:
 ./scripts/mede-audio.sh <arquivo> ~/video/work/segmentos.txt
@@ -144,6 +153,42 @@ tamanho do caminho de três gerações, em menos tempo e com uma geração só d
 
 A GPU continua sendo usada para **decodificar** (`-hwaccel cuda`), que é a parte cara.
 
+### processa.sh não trata áudio (v3)
+
+Até a v2 o `processa.sh` aplicava `loudnorm` de passo único ao arquivo inteiro,
+e o `audio.sh` jogava esse resultado fora e refazia a partir do master. Três
+custos, todos medidos:
+
+1. **Dois entregáveis quase idênticos** em `out/`, mesma imagem, áudio diferente.
+   Publicar o errado é silencioso — só se percebe ouvindo.
+2. **A transcrição saía 27 ms adiantada** em relação ao vídeo. O stream de áudio
+   não começa em zero (0,048896 s no ep00) e o WAV não guarda esse offset: ao
+   escrever o arquivo o ffmpeg o descarta. Todo ponto de corte herdava o viés.
+3. **A defasagem de 21,33 ms** que o `audio.sh` corrigia por correlação cruzada
+   existia só porque o `.wav` vinha de um áudio reencodado.
+
+Na v3 o `processa.sh` usa `-c:a copy` e extrai o `.wav` com `first_pts=0`.
+O áudio do `_norm` passa a ser **bit-idêntico ao do master** (MD5 conferido) e
+os itens 2 e 3 somem por construção, em vez de serem corrigidos a cada execução.
+O `audio.sh` virou o único produtor de áudio, e ganhou um modo `--uniforme` para
+o episódio cuja zona cinzenta estoure o critério.
+
+Efeitos colaterais medidos, todos a favor:
+
+| | v2 | v3 |
+|---|---|---|
+| `processa.sh` | 2m27,9s | **2m15,4s** (sai o encode de AAC) |
+| Gerações de AAC no entregável | 2 | **1** |
+| Bitrate do áudio de trabalho | 192k reencodado | **256k do celular, intacto** |
+| Zona cinzenta | 3,2% | **1,7%** |
+| Ambiguidade na fronteira | 5,00s | **1,99s** |
+| Alternância mínima tolerada | ~50s | **~20s** |
+
+As duas últimas linhas foram surpresa. Transcrever do áudio cru move a fronteira
+FALA→MUSICA de 34,600s para 37,610s — mais perto de onde a energia realmente
+assenta. O `loudnorm` dinâmico do `_norm` estava empurrando o VAD para cortar
+cedo demais.
+
 ### Ordem: normalizar antes de cortar
 
 Ordem inversa foi testada e é inviável: qualquer ferramenta que decodifique 4K60 HEVC em
@@ -178,16 +223,30 @@ segmentos são reunidos ao final.
 
 Supera a regra defensiva anterior ("a transcrição diz onde não cortar").
 
-**Passo 1 — medir a zona cinzenta.** `scripts/segmenta.py`. Medido duas vezes no
-mesmo episódio (`video_0`, 189,6s): 3,0% com `small`, **3,2% com `large-v3`**.
-Abaixo do critério de 10%. O modelo maior *não* melhorou a fronteira: moveu o fim
-da fala de 35,140s para 34,600s e a ambiguidade subiu de 4,46s para 5,00s.
+**Passo 1 — medir a zona cinzenta.** `scripts/segmenta.py`. Medido quatro vezes
+no mesmo episódio (`video_0`, 189,6s):
 
-O custo é **por fronteira (~5s), não por minuto**. A regra derivada segue valendo:
-a segmentação só por transcrição se sustenta enquanto a alternância fala/música
-for **mais espaçada que ~50s**. Este episódio tem **uma única fronteira medível**
-e é o caso favorável extremo. n=1 — a medição autoriza o passo 2, não a
-generalização.
+| Transcrição de | Modelo | Regra de fusão | Zona cinzenta | Ambiguidade |
+|---|---|---|---|---|
+| `_norm` (loudnorm) | `small` | não | 3,0% | 4,46s |
+| `_norm` (loudnorm) | `large-v3` | não | 3,2% | 5,00s |
+| áudio cru | `large-v3` | não | 7,2% | 5,77s |
+| **áudio cru** | **`large-v3`** | **sim** | **1,7%** | **1,99s** |
+
+Duas lições. **Trocar de modelo não ajuda**: o `large-v3` piorou a fronteira em
+relação ao `small`. **O que ajuda é não normalizar antes de transcrever** — o
+`loudnorm` dinâmico empurrava o VAD a cortar a fala 3s cedo demais.
+
+A "regra de desempate simples" que este documento previu virou código: fundir
+regiões de fala separadas por menos de 2s. Sem ela o áudio cru fica pior (7,2%),
+porque o Whisper abre um buraco de 1s no meio de uma fala corrida e isso cria
+duas fronteiras falsas.
+
+O custo é **por fronteira, não por minuto**. A regra derivada, com os números
+novos: a segmentação só por transcrição se sustenta enquanto a alternância
+fala/música for **mais espaçada que ~20s** (era ~50s). Este episódio tem **uma
+única fronteira medível** e é o caso favorável extremo. n=1 — a medição autoriza
+o passo 2, não a generalização.
 
 **Passo 2 — cadeias de áudio por classe.** `scripts/audio.sh`, feito e medido
 (ver "Tratamento de áudio por classe" abaixo).
@@ -205,14 +264,18 @@ Detalhes em `docs/01-arquitetura-segmentacao.md`.
 `scripts/audio.sh` aplica cadeias distintas a FALA e MÚSICA e remonta.
 Comparado ao `loudnorm` uniforme do `processa.sh`, no `ep00` (= `video_0`):
 
-| Métrica | master | processa.sh | audio.sh | alvo |
-|---|---|---|---|---|
-| I total | −9,27 | −12,75 | **−14,02** | −14 LUFS |
-| I fala | −14,97 | −15,31 | **−14,10** | −14 |
-| I música | −8,83 | −12,38 | **−14,01** | −14 |
-| LRA música | 9,00 | 7,20 | **8,90** | preservar |
-| LRA fala | 7,80 | 6,20 | **4,40** | nivelar |
-| True peak | +0,24 | −1,33 | −1,38 | ≤ −1 dBTP |
+| Métrica | master (= `_norm` v3) | `processa.sh` v2 | `audio.sh` | `--uniforme` | alvo |
+|---|---|---|---|---|---|
+| I total | −9,27 | −12,75 | **−14,01** | −14,02 | −14 LUFS |
+| I fala | −14,67 | −15,31 | **−14,20** | −19,38 | −14 |
+| I música | −8,83 | −12,38 | **−14,01** | −13,55 | −14 |
+| LRA música | 8,60 | 7,20 | **8,50** | 8,60 | preservar |
+| LRA fala | 7,80 | 6,20 | **4,70** | 7,80 | nivelar |
+| True peak | +0,24 | −1,33 | −1,35 | −4,48 | ≤ −1 dBTP |
+
+O modo `--uniforme` acerta o alvo e **não achata** (LRA total 10,70, idêntico à
+fonte), mas não corrige o desequilíbrio: deixa a fala 5,8 dB abaixo da música.
+É a rede de segurança, não o caminho bom.
 
 Três resultados que justificam o script:
 
@@ -283,16 +346,12 @@ transcrever sempre do `_norm`, nunca do `_audio`** — que é o que o fluxo já 
       exporta a variável antes de o interpretador subir e faz `exec` no
       `transcreve.py`. O truque de `os.execv` foi removido; o Python só avisa se for
       chamado direto sem as libs no caminho.
-- [x] ~~Marcar idioma do áudio~~ — `-metadata:s:a:0 language=por` agora está em
-      `processa.sh`, `corta.sh` e `audio.sh`. Verificado no `ep00_audio.mp4`:
-      `TAG:language=por`. O `ep00_norm.mp4` desta execução ainda saiu como `eng`
-      porque foi gerado antes da correção; reprocessar se for publicar.
+- [x] ~~Marcar idioma do áudio~~ — `-metadata:s:a:0 language=por` está em
+      `processa.sh`, `corta.sh` e `audio.sh`. Verificado no `ep00_audio.mp4`.
 - [ ] Glossário de correção de transcrição ainda não existe.
-- [ ] `processa.sh` continua aplicando `loudnorm` uniforme. Agora que o
-      `audio.sh` existe e está medido, decidir: ou o `processa.sh` para de
-      normalizar áudio (vira só vídeo + wav) e o `audio.sh` passa a ser
-      obrigatório, ou os dois convivem e o `_norm` é só um rascunho. Hoje
-      convivem, e o `_norm` gasta um encode de áudio que é jogado fora.
+- [x] ~~`processa.sh` aplicando `loudnorm` uniforme~~ — resolvido na v3: ele não
+      toca mais no áudio, e o `audio.sh` virou o único produtor. Ver a decisão
+      "processa.sh não trata áudio (v3)" acima.
 - [ ] Medir a segmentação em episódios com alternância fala/música real. Os dois
       episódios medidos até agora são o mesmo arquivo, com uma fronteira só.
       `inbox/improviso_2.mp4` (289s) ainda não foi processado.

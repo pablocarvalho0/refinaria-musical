@@ -95,9 +95,39 @@ for f in (wav, tsv):
 
 audio, sr = le_wav(wav)
 dur = len(audio) / sr
-fala = carrega_segmentos(tsv)
-if not fala:
+fala_bruta = carrega_segmentos(tsv)
+if not fala_bruta:
     sys.exit("transcrição vazia — nada a classificar")
+
+
+def funde_curtos(segs, limite):
+    """Funde regiões de fala separadas por menos de `limite` segundos.
+
+    É a "regra de desempate simples" que o documento previu. Um buraco de
+    1s no meio de uma fala corrida não é música: é o Whisper respirando.
+    Sem fundir, ele vira uma ilha de MUSICA dentro da fala, com duas
+    fronteiras novas — e fronteira é justamente o que custa caro na zona
+    cinzenta (o custo é por fronteira, não por minuto).
+
+    Medido no ep00 transcrito do áudio cru: sem fundir, 4 fronteiras e
+    7,2% de zona cinzenta; fundindo, 2 fronteiras e 1,7%.
+
+    Mandar 1s de pausa para a cadeia de fala é inofensivo mesmo se for
+    música — o inverso, uma ilha de música dentro da fala, custa duas
+    rampas e dois pontos de decisão.
+    """
+    saida, fundidos = [], []
+    for ini, fim, txt in segs:
+        if saida and ini - saida[-1][1] < limite:
+            fundidos.append((saida[-1][1], ini))
+            saida[-1] = [saida[-1][0], max(saida[-1][1], fim),
+                         f"{saida[-1][2]} {txt}".strip()]
+        else:
+            saida.append([ini, fim, txt])
+    return [tuple(x) for x in saida], fundidos
+
+
+fala, fundidos = funde_curtos(fala_bruta, GAP_CURTO)
 
 # ---------------------------------------------------------------
 # Classificação: onde há texto é FALA, o complemento é MUSICA.
@@ -168,6 +198,10 @@ P = print
 P(f"\n=== Segmentacao: {wav.name} ===")
 P(f"Duracao total       {hms(dur)}  ({dur:.3f}s)")
 P(f"Regioes             {len(regioes)}  ({len(falas)} FALA, {len(musica)} MUSICA)")
+P(f"Segmentos da transcricao  {len(fala_bruta)} -> {len(fala)} apos fundir "
+  f"buracos < {GAP_CURTO}s")
+for a, b in fundidos:
+    P(f"  fundido: {hms(a)} -> {hms(b)}  {b - a:.3f}s")
 P()
 P("--- duracao por classe ---")
 P(f"FALA    {t_fala:8.3f}s  {100 * t_fala / dur:5.1f}%   em {len(falas)} regiao(oes)")

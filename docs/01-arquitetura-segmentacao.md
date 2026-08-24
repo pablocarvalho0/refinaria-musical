@@ -268,3 +268,51 @@ em `CLAUDE.md`, seção "Tratamento de áudio por classe". Resumo:
 4. **O áudio tratado transcreve pior.** 92,5% de similaridade contra o `_norm`,
    três trechos degradados, nenhum melhorado. A transcrição tem que sair do
    `_norm`. Isso amarra a ordem do pipeline: transcrever **antes** de tratar.
+
+
+---
+
+## Reestruturação do pipeline — 24/08/2026 (v3)
+
+A medição do passo 2 expôs que o `processa.sh` e o `audio.sh` disputavam a mesma
+responsabilidade. A divisão foi refeita: **`processa.sh` cuida do vídeo,
+`audio.sh` cuida do áudio, e não se sobrepõem.**
+
+O efeito colateral relevante para *este* documento é que a transcrição passou a
+sair do áudio cru, e isso **melhorou a segmentação mais do que qualquer coisa
+tentada até aqui**:
+
+| | fronteira FALA→MUSICA | ambiguidade | zona cinzenta |
+|---|---|---|---|
+| transcrito do `_norm` (`loudnorm`) | 00:00:34,600 | 5,00s | 3,2% |
+| transcrito do áudio cru | 00:00:37,610 | **1,99s** | **1,7%** |
+
+O `loudnorm` de passo único é dinâmico: ele levanta os trechos quietos. No fim
+da fala, isso levantava o ruído de sala o bastante para o Silero VAD decidir que
+a fala tinha acabado 3s antes do que acabou. **Normalizar antes de transcrever
+degradava a fronteira** — o oposto da intuição.
+
+### A regra de desempate, implementada
+
+O documento previa que a arquitetura se sustentaria "com uma regra de desempate
+simples". Ela é: **fundir regiões de fala separadas por menos de 2s**
+(`funde_curtos` em `segmenta.py`).
+
+Sem ela, o áudio cru sai pior que o normalizado (7,2% contra 3,2%), porque o
+Whisper abre um buraco de 1s no meio de uma fala corrida e esse buraco vira uma
+ilha de MUSICA com duas fronteiras novas. Como o custo é por fronteira, duas
+fronteiras falsas custam mais que o buraco vale.
+
+Mandar 1s de pausa para a cadeia de fala é inofensivo mesmo se for música. O
+inverso — uma ilha de música dentro da fala — custa duas rampas e dois pontos
+de decisão. A assimetria é o que justifica a regra.
+
+### Consequência para a regra derivada
+
+Com 1,99s de ambiguidade por fronteira, o orçamento de 10% cabe em **9,5
+fronteiras**: uma alternância fala/música a cada **~20s**, contra os ~45–50s das
+medições anteriores. A aula de harmonia que diz "ouve esse acorde" → toca 8s →
+"percebeu a sétima?" continua fora do orçamento, mas a margem triplicou.
+
+Segue valendo: **n=1**, uma fronteira medível, caso favorável extremo. Os quatro
+números desta série vêm do mesmo arquivo.
