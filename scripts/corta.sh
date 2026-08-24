@@ -65,6 +65,7 @@ ffmpeg -y -hide_banner -loglevel warning -stats \
   -map "[outv]" -map "[outa]" \
   -c:v libx264 -crf 23 -preset fast -pix_fmt yuv420p \
   -c:a aac -b:a 192k -ar 48000 \
+  -metadata:s:a:0 language=por \
   -movflags +faststart \
   "$OUT/${BASE}_final.mp4"
 

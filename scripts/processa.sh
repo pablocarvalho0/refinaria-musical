@@ -53,6 +53,7 @@ time ffmpeg -y -hide_banner -loglevel warning -stats \
   -c:v libx264 -crf "$CRF" -preset "$PRESET" -pix_fmt yuv420p \
   -af "loudnorm=I=${LUFS}:TP=-1.5:LRA=11" \
   -c:a aac -b:a 192k -ar 48000 \
+  -metadata:s:a:0 language=por \
   -movflags +faststart \
   "$OUT/${BASE}_norm.mp4"
 

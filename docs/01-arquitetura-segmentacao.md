@@ -1,6 +1,6 @@
 # Arquitetura de segmentação: fala e música
 
-Status: **proposta** — validar a hipótese antes de implementar.
+Status: **passos 1 e 2 feitos e medidos** (24/08/2026). Passos 3 e 4 sem medição.
 Supera a abordagem defensiva descrita no CLAUDE.md ("a transcrição diz onde não cortar").
 
 ## A ideia
@@ -208,3 +208,63 @@ feito**, sem modelo novo nem dependência nova:
 Fazer os dois e cruzar: onde palavra, VAD e energia concordam, a fronteira é firme; onde
 discordam, é zona cinzenta explícita, e aí a regra de desempate tem em que se apoiar.
 Detecção de pitch estável só se isso não bastar.
+
+
+---
+
+## Resultado do passo 1, remedido com large-v3 — 24/08/2026
+
+O episódio `20260824_135542` e o `ep00` desta execução são **o mesmo arquivo**
+(`inbox/video_0.mp4`, 189,62s). A remedição troca só o modelo de transcrição.
+
+| Métrica | `small` | `large-v3` |
+|---|---|---|
+| FALA | 34,000s (17,9%) | 33,460s (17,6%) |
+| MUSICA | 155,589s (82,1%) | 156,129s (82,4%) |
+| Fim da fala | 00:00:35,140 | 00:00:34,600 |
+| Ambiguidade na fronteira | 4,46s | **5,00s** |
+| Zona cinzenta | 3,0% | **3,2%** |
+| Orçamento de 10% | 4,3 fronteiras | 3,8 fronteiras |
+| Espaçamento mínimo | ~45s | **~50s** |
+
+**O modelo maior não melhorou a fronteira — piorou.** Ele termina a fala 0,54s
+antes, e o áudio leva ainda mais tempo para assentar depois desse ponto. Isso
+reforça o diagnóstico do passo 1: o problema da fronteira não é qualidade de
+reconhecimento, é que a transcrição não sabe onde a música começa. Trocar de
+modelo não ataca a causa; `word_timestamps` e o VAD do Silero atacam.
+
+Custo de transcrição, large-v3 `int8_float16` na GTX 1650: **8,6s de inferência
+para 189,6s de áudio** (0,045x tempo real), pico de **2278 MiB de 4096** de VRAM.
+Não houve OOM e não foi preciso cair para `medium`. Carga do modelo: 4,9s.
+
+## Resultado do passo 2 — 24/08/2026
+
+Implementado em `scripts/audio.sh`. Números completos e decisões de implementação
+em `CLAUDE.md`, seção "Tratamento de áudio por classe". Resumo:
+
+- A tabela de compromissos ruins deste documento previa três problemas do
+  tratamento uniforme: compressão que "achata o violão", loudness que faz o
+  limitador atuar nos picos de ataque, e denoise que serve mal aos dois. Os dois
+  primeiros foram **medidos e confirmados**: o `loudnorm` uniforme movimenta o
+  ganho em **9,09 dB** ao longo da região musical, e deixa a fala 2,9 dB abaixo
+  da música.
+- Com as cadeias separadas, o ganho na música varia **0,08 dB** e as duas classes
+  ficam a 0,09 dB uma da outra, ambas em −14 LUFS.
+- A emenda entre as cadeias foi resolvida por **máscara com rampa**, não por
+  concat. As duas máscaras somam 1,000000 em todas as amostras. Isso torna o
+  pré-requisito de "todos os parâmetros de saída baterem exatamente" **irrelevante
+  para o áudio** — não há concat de áudio. Ele continua valendo para o vídeo,
+  quando os passos 3 e 4 chegarem.
+
+### O que o passo 2 revelou e o documento não previa
+
+1. **Desalinhamento entre master e `_norm`.** 21,33 ms — 1024 samples, o atraso
+   do codificador AAC. Qualquer passo que misture áudio de uma fonte com vídeo de
+   outra precisa medir isso, não supor zero.
+2. **Latência de filtro.** O `afftdn` atrasa 25,00 ms. Duas cadeias paralelas com
+   latências diferentes desalinham entre si.
+3. **`linear=true` não vale para a fala.** Ela precisa de +7,00 dB, o que estoura
+   o teto de true peak, e o `loudnorm` volta ao modo dinâmico.
+4. **O áudio tratado transcreve pior.** 92,5% de similaridade contra o `_norm`,
+   três trechos degradados, nenhum melhorado. A transcrição tem que sair do
+   `_norm`. Isso amarra a ordem do pipeline: transcrever **antes** de tratar.
