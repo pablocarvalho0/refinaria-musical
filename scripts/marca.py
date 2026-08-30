@@ -428,6 +428,54 @@ def story(t, video, tempo, titulo, w=1080, h=1920, sem_texto=False):
     return img
 
 
+def svgs(t):
+    """Versão vetorial dos logos, para levar ao Figma ou ao Illustrator.
+
+    Vive aqui dentro, e não num script à parte, porque asset gerado fora do
+    gerador diverge em silêncio: a primeira leva de SVGs foi escrita à mão e
+    continuou turquesa depois que a paleta inteira virou terracota — arquivo
+    certo no nome, cor errada no conteúdo, sem nada acusando.
+    """
+    p, m = t["paleta"], t["marca"]
+    aviso = ("<!-- Texto em Bitstream Charter. Para usar fora desta máquina,\n"
+             "     converta em curvas (Figma: Outline Stroke; Illustrator:\n"
+             "     Criar Contornos). Cores de marca/tokens.toml. -->")
+    serif = "Charter, 'Charis SIL', Georgia, serif"
+
+    pecas = {
+        "logo-resolucao.svg": f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+{aviso}
+  <rect width="600" height="600" fill="{p['fundo']}"/>
+  <text x="196" y="352" font-family="{serif}" font-weight="700"
+        font-size="192" fill="{p['texto']}" text-anchor="middle">V</text>
+  <polygon points="268,258 348,300 268,342" fill="{p['acento_claro']}"/>
+  <text x="410" y="352" font-family="{serif}" font-weight="700"
+        font-size="192" fill="{p['texto']}" text-anchor="middle">I</text>
+</svg>''',
+        "logo-monograma.svg": f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+{aviso}
+  <rect width="600" height="600" fill="{p['fundo']}"/>
+  <text x="300" y="392" font-family="{serif}" font-weight="700"
+        font-size="276" fill="{p['texto']}" text-anchor="middle">PC</text>
+  <rect x="198" y="456" width="204" height="18" fill="{p['acento_claro']}"/>
+</svg>''',
+        "logo-lockup.svg": f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+{aviso}
+  <rect width="1200" height="400" fill="{p['fundo']}"/>
+  <rect x="90" y="114" width="14" height="150" fill="{p['acento_claro']}"/>
+  <text x="144" y="222" font-family="{serif}" font-weight="700"
+        font-size="98" fill="{p['texto']}">{m['nome']}</text>
+  <text x="806" y="222" font-family="{serif}" font-weight="700"
+        font-size="98" fill="{p['acento_claro']}">{m['sufixo']}</text>
+  <text x="148" y="286" font-family="Inter, sans-serif" font-weight="500"
+        font-size="27" letter-spacing="3" fill="{p['texto_fraco']}">{m['tema'].upper()}</text>
+</svg>''',
+    }
+    for nome, conteudo in pecas.items():
+        (SAIDA / nome).write_text(conteudo, encoding="utf-8")
+        print(f"  out/marca/{nome}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("peca", choices=["logos", "thumb", "post", "story", "tudo"])
@@ -452,6 +500,7 @@ def main():
         salva(logo_monograma(t), "logo-monograma.png")
         salva(logo_resolucao(t), "logo-resolucao.png")
         salva(logo_lockup(t, claro=True), "logo-lockup-claro.png")
+        svgs(t)
 
     if args.peca in ("thumb", "post", "story", "tudo"):
         if not args.video:

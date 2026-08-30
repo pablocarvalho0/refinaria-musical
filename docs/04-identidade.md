@@ -244,12 +244,17 @@ por rotas diferentes: sobre foto o texto é julgado **contra o próprio contorno
 que é com quem faz fronteira; sobre fundo sólido, contra o fundo. Exigir os dois
 reprovava o post, que está a 15,7:1.
 
-## Existem duas identidades no repositório, e elas convergiram sozinhas
+## Duas soluções, uma direção
 
 Ao consolidar, em 30/08/2026, apareceu uma sobreposição: `scripts/capa_arte.py`,
 escrito noutra sessão, gera capa 1280x720 e 1080x1920 — **as mesmas peças** que
 o `scripts/marca.py`. Cada um com sua tipografia e sua paleta, e nenhum dos dois
 lê o do outro. O `capa_arte.py` tem as cores escritas dentro do código.
+
+**Qual é o canônico está decidido:** o `capa_arte.py` foi solução pontual, feita
+para destravar as primeiras publicações, e cumpriu o papel. Daqui em diante o
+sistema é `marca/tokens.toml` + `scripts/marca.py`, e é dele que os próximos
+episódios partem.
 
 A notícia boa é o quanto as duas concordam. Partindo de fontes diferentes — o
 guia escrito, num caso; o violão filmado, no outro — chegaram a quase a mesma
@@ -270,11 +275,10 @@ do outro.
 Isso não deve ficar assim. Duas soluções para o mesmo problema envelhecem mal:
 alguém muda a cor num lugar e a outra peça continua na cor velha, sem erro.
 
-**Recomendação:** unificar com `marca/tokens.toml` como fonte única — ele já
-existe e já tem a estrutura certa —, fazendo o `capa_arte.py` ler dele em vez de
-carregar as cores no código. A escolha entre âmbar e salmão, e entre EB Garamond
-e Charter, é decisão do autor e cabe numa comparação lado a lado; o que não cabe
-é continuar com as duas.
+**O que fazer quando o `capa_arte.py` for reusado:** fazê-lo ler
+`marca/tokens.toml` em vez de carregar cor e fonte no código. Enquanto não for
+tocado, ele fica como está — os vídeos que ele gerou já estão no ar e não há
+motivo para mexer neles.
 
 A convergência independente é, por si, o argumento mais forte que esta
 identidade tem: duas análises separadas, sobre materiais diferentes, apontaram

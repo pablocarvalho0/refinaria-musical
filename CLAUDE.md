@@ -525,6 +525,10 @@ trabalho pesado, o primeiro lugar a olhar é
 
 ## Identidade visual — medida em 30/08/2026
 
+**`marca/tokens.toml` é a fonte da verdade do visual, e `scripts/marca.py` é
+quem desenha.** Episódio novo sai por ali. (O `capa_arte.py` foi solução pontual
+das primeiras publicações e migra para os tokens quando for reusado.)
+
 **A paleta é terracota/salmão, extraída do material escrito do autor**
 (`~/Documents/proj-harmonia`), e a tipografia da marca é Bitstream Charter.
 Uma primeira proposta em turquesa foi descartada: o argumento que a sustentava
@@ -862,16 +866,14 @@ qualquer vídeo com layout misto.
 - [ ] Validar o `9x16` sobre um corte vertical de verdade. O que foi medido
       até agora usa crop central do 16:9, que serve para contraste mas não é o
       enquadramento que vai ao ar.
-- [ ] **Duas identidades visuais convivem no repositório.** `scripts/marca.py`
-      e `scripts/capa_arte.py` geram as mesmas peças (1280x720 e 1080x1920) com
-      tipografias e paletas próprias, e o segundo tem as cores escritas no
-      código. As duas convergiram sozinhas — fundo e texto praticamente
-      idênticos, acento a 8° de distância em matiz, serifa nos dois casos —,
-      então unificar é ajuste fino, não redesenho. Fazer o `capa_arte.py` ler
-      `marca/tokens.toml`. Ver "Existem duas identidades" em
+- [ ] **Migrar o `capa_arte.py` para os tokens.** Ele nasceu como solução
+      pontual para destravar as primeiras publicações e tem tipografia e cores
+      escritas dentro do código. **O sistema canônico daqui em diante é
+      `marca/tokens.toml` + `scripts/marca.py`** — episódio novo sai por ali.
+      A migração é ajuste fino e não redesenho: as duas direções convergiram
+      sozinhas (fundo e texto praticamente idênticos, acento a 8° de distância
+      em matiz, serifa nos dois casos). Ver "Duas soluções, uma direção" em
       `docs/04-identidade.md`.
-- [ ] ~~Escolher uma cor de destaque antes dos templates.~~ Feito: terracota
-      `#AE4E2A` e salmão `#DEA87E`, medidos no material escrito do autor.
 
 - [ ] **`processa.sh` distorce vídeo vertical.** O `scale=1920:1080` é fixo e
       não olha `rotation`. Um vídeo gravado com o celular em pé sai esmagado,
