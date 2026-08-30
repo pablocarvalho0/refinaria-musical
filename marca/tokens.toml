@@ -1,0 +1,164 @@
+# Identidade visual do canal — valores que os scripts leem.
+#
+# Este arquivo é a fonte da verdade do visual, do mesmo jeito que a transcrição
+# é a fonte da verdade do conteúdo. Nenhum número de aparência deve estar
+# escrito dentro de um script: se está aqui, muda em um lugar só e vale para os
+# 47 episódios.
+#
+# Quem consome: scripts/legenda.py (--formato).
+# O porquê de cada escolha: docs/04-identidade.md.
+
+
+[fonte]
+familia = "Inter"
+# Bold é o -1 no campo Bold do estilo .ass, aplicado pelo legenda.py.
+
+# Métrica medida em 30/08/2026 renderizando com o próprio libass, em seis
+# tamanhos (40 a 72), sobre a linha mais longa do ep00 ("é um teste, então
+# posso fazer mais vídeos", 41 caracteres). A relação é exatamente linear:
+#
+#     largura da linha em px = n_caracteres * largura_por_char * tamanho
+#     altura da caixa em px  = tamanho * altura_por_tamanho
+#
+# Serve para dimensionar um formato novo por cálculo, em vez de tentativa e
+# erro. Se a família da fonte mudar, remedir — estes números são dela.
+largura_por_char = 0.4119
+altura_por_tamanho = 0.8148
+
+
+# ---------------------------------------------------------------------------
+# Paleta — extraída do material escrito do próprio Pablo
+#
+# Origem: ~/Documents/proj-harmonia/guia-harmonia-funcional.pdf e
+# plano-playlist-harmonia.pdf, escritos em 21/08/2026. As cores abaixo foram
+# medidas nos PDFs renderizados, isolando os pixels saturados.
+#
+# A primeira proposta desta identidade era turquesa, com o argumento de que o
+# acento precisava contrastar com o material filmado, que é 96% quente (67%
+# vermelho, 15% laranja, 14% magenta em 633.600 pixels amostrados). O argumento
+# estava tecnicamente certo e resolvia o problema errado: a medição de contraste
+# feita depois estabeleceu que **o acento nunca vai sobre a foto** — ele vive em
+# chip, barra e fundo sólido, porque sobre imagem só o branco tem contraste
+# garantido. A competição com o material, que justificava o frio, não acontece.
+#
+# E havia uma razão mais forte do outro lado: já existe material escrito com
+# direção estabelecida, e harmonia funcional é assunto de livro e de tradição.
+# Uma identidade que conversa com esse material vale mais que uma que contrasta
+# com os frames. Somado a isso, o autor não se reconheceu no turquesa — e
+# identidade que o autor não veste não funciona, por melhor que seja a defesa.
+#
+# O sistema é de par claro/escuro, e já era coerente no material original:
+#   sobre fundo ESCURO  -> texto creme,  acento SALMÃO   (8,7:1)
+#   sobre fundo CLARO   -> texto tinta,  acento TERRACOTA (5,0:1)
+#   chip                -> fundo terracota, texto creme  (4,8:1)
+#
+# O terracota tem luminância 0,146: é escuro, então funciona como texto sobre
+# claro e como fundo de chip, mas NÃO como texto sobre fundo escuro (3,4:1).
+# O salmão é o oposto. Usar um no lugar do outro quebra o contraste.
+# ---------------------------------------------------------------------------
+
+[paleta]
+fundo = "#181510"        # quase preto quente, medido da capa do guia
+fundo_suave = "#221D17"  # cartões e faixas sobre o fundo
+papel = "#F8F6F2"        # fundo claro, para peças impressas e documentos
+creme = "#F0E8E0"        # caixas de destaque, medido do guia
+texto = "#F5F1EA"        # sobre fundo escuro
+texto_tinta = "#181510"  # sobre fundo claro
+texto_fraco = "#A79C8E"  # secundário sobre escuro; só em fundo sólido
+acento = "#AE4E2A"       # terracota: texto sobre claro, e fundo de chip
+acento_claro = "#DEA87E" # salmão: acento sobre fundo escuro
+
+[tipografia]
+# Duas faces com papéis separados, e a separação é funcional.
+#
+# A Charter carrega a marca e os títulos: é serifada, robusta e editorial, do
+# mesmo mundo do guia escrito. (O PDF do guia saiu em DejaVu Serif, mas isso é
+# fallback do gerador, não escolha — a Charter é a fonte que aquele material
+# queria ser.) O Pillow carrega Type1, então ela funciona nas peças raster.
+#
+# A Inter fica na legenda queimada e em qualquer texto pequeno sobre imagem em
+# movimento, onde a serifa perde e a legibilidade manda. A legenda já está
+# validada em Inter (docs/04) e não muda por causa da marca.
+marca = "Charter"
+marca_arquivo = "/usr/share/fonts/X11/Type1/c0632bt_.pfb"
+marca_regular = "/usr/share/fonts/X11/Type1/c0648bt_.pfb"
+marca_italico = "/usr/share/fonts/X11/Type1/c0649bt_.pfb"
+legenda = "Inter"
+
+[marca]
+nome = "Pablo Carvalho"
+sufixo = "SM"
+handle = "@PabloCarvalho-q1o"
+tema = "harmonia funcional"
+
+[cor]
+# Formato .ass: &HAABBGGRR (alfa invertido — 00 é opaco).
+texto = "&H00FFFFFF"      # branco puro
+contorno = "&H00101010"   # quase preto; não é preto puro para não "chapar"
+secundaria = "&H000000FF"  # karaokê, não usado
+fundo = "&H96000000"      # preto a 59%; só vale com BorderStyle=3, hoje 1
+
+
+# ---------------------------------------------------------------------------
+# Formatos
+#
+# `margem_inferior` é a distância da base do texto até a borda de baixo, em
+# unidades de PlayRes. `margem_lateral` vale para os dois lados.
+#
+# A montagem dos cues NÃO muda entre formatos: mesmo texto, mesmos tempos.
+# Só a apresentação muda. Isso é o que permite cortar um vertical de dentro do
+# longo sem redecidir nada.
+#
+# `chars_por_linha` e `linhas_max` são o ONDE a linha quebra, que é
+# apresentação e depende da largura — não confundir com o teto de 84
+# caracteres por cue do legenda.py, que é norma de leitura e define os tempos.
+# O `.ass` usa WrapStyle 2, que desliga a quebra automática do libass: a linha
+# que sai do Python é a que vai para a tela, inteira. Aplicar os 42 do 16:9 ao
+# vertical jogava 10 das 16 linhas do ep00 para fora da tela.
+# ---------------------------------------------------------------------------
+
+[formato.16x9]
+descricao = "YouTube longo. O .srt sobe separado; o .ass é para queimar quando precisar."
+largura = 1920
+altura = 1080
+tamanho = 54
+contorno = 3.2
+sombra = 1.0
+margem_lateral = 140
+margem_inferior = 90
+chars_por_linha = 42
+linhas_max = 2
+# Validado na tela sobre fundo claro e escuro em 30/08/2026 (ver CLAUDE.md,
+# "Legendas"). A área útil de 1640px comporta 73 caracteres na fonte 54, e a
+# linha mais longa do ep00 usa 56% dela: aqui o limite de 42 caracteres é
+# norma de leitura, não falta de espaço.
+
+[formato.9x16]
+descricao = "Shorts e Reels. A legenda é queimada — o corte vertical já reencoda."
+largura = 1080
+altura = 1920
+tamanho = 78
+contorno = 4.6
+sombra = 1.4
+margem_lateral = 60
+margem_inferior = 480
+chars_por_linha = 29
+linhas_max = 3
+# Dimensionado por cálculo com a métrica acima, não por proporção do 16:9.
+#
+# O critério é caracteres por linha, não porcentagem da tela: linha curta lê
+# melhor em tela pequena e em movimento. Com margem lateral 60 sobram 960px, e
+# a fonte 78 dá 29,9 caracteres por linha. Um cue no teto de 84 caracteres
+# quebra em três linhas de ~28, que ocupam 229px.
+#
+# Contorno e sombra mantêm a proporção do 16:9 (5,93% e 1,85% do tamanho), que
+# é o que já foi aprovado na tela.
+#
+# margem_inferior = 480 é 25% da altura: a faixa que a UI de Reels e Shorts
+# cobre com botões, legenda do post e barra de progresso. Com três linhas, o
+# topo do bloco fica a 37% da altura, ainda longe do rosto no terço superior.
+#
+# ATENÇÃO: os 25% vêm da documentação do browser-use/video-use (que usa 31%),
+# não de medição no aplicativo. Para medir de verdade, publique
+# out/gabarito-safe-area.mp4 como rascunho e veja qual faixa a UI cobre.
+# Enquanto isso não for feito, este número é a melhor estimativa, não um fato.

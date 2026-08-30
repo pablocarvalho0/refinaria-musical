@@ -14,11 +14,20 @@ import argparse
 import pathlib
 import re
 import sys
+import tomllib
 
 # Regras de leitura. Os números seguem a prática de legendagem para vídeo
 # (BBC/Netflix convergem nesta faixa): duas linhas de no máximo ~42
 # caracteres, entre 1 e 6 segundos na tela. Ficam aqui em cima porque são
 # o que se ajusta depois de ver o resultado na tela.
+#
+# Estes números são de LEITURA, não de formato, e por isso não estão em
+# marca/tokens.toml. São iguais no horizontal e no vertical de propósito: o
+# texto e os tempos dos cues não podem mudar entre formatos, senão um corte
+# vertical tirado do longo teria legenda diferente do longo. O que muda entre
+# formatos é só a apresentação — tamanho, margem, PlayRes —, e essa parte sim
+# vem dos tokens. No 16:9 o limite de 42 caracteres nem chega a ser espacial:
+# a área útil comporta 73.
 MAX_CHARS_LINHA = 42
 MAX_LINHAS = 2
 MAX_CHARS_CUE = MAX_CHARS_LINHA * MAX_LINHAS
@@ -324,25 +333,63 @@ def estica_rapidos(cues: list[dict]) -> list[dict]:
     return cues
 
 
-def quebra_linhas(txt: str) -> list[str]:
-    """Divide em até MAX_LINHAS no espaço mais balanceado."""
-    if len(txt) <= MAX_CHARS_LINHA:
+def quebra_linhas(txt: str, max_chars: int = MAX_CHARS_LINHA,
+                  max_linhas: int = MAX_LINHAS) -> list[str]:
+    """Divide o cue em linhas balanceadas, sem passar de `max_chars`.
+
+    Onde a linha quebra é APRESENTAÇÃO, não conteúdo: depende da largura do
+    formato, e por isso os limites são parâmetro e vêm de marca/tokens.toml.
+    O texto e os tempos do cue não mudam — só o lugar da quebra.
+
+    Isto não é preciosismo. O `.ass` usa `WrapStyle: 2`, que desliga a quebra
+    automática do libass: a linha que sair daqui é a linha que vai para a tela,
+    inteira. Com os 42 caracteres do 16:9 aplicados ao vertical, 10 das 16
+    linhas do ep00 saíam da tela, uma delas com 646 px para fora — texto que
+    simplesmente não existia para quem assistisse.
+
+    Escolhe o menor número de linhas que caiba e, entre as divisões possíveis,
+    a mais equilibrada.
+    """
+    if len(txt) <= max_chars:
         return [txt]
     palavras = txt.split()
-    melhor, melhor_custo = None, None
-    for k in range(1, len(palavras)):
-        a, b = " ".join(palavras[:k]), " ".join(palavras[k:])
-        if len(a) > MAX_CHARS_LINHA or len(b) > MAX_CHARS_LINHA:
-            continue
-        custo = abs(len(a) - len(b))
-        if melhor_custo is None or custo < melhor_custo:
-            melhor, melhor_custo = (a, b), custo
-    if melhor:
-        return list(melhor)
-    # Não coube em duas linhas dentro do limite: divide no meio e aceita
-    # o estouro em vez de perder texto.
-    meio = len(palavras) // 2
-    return [" ".join(palavras[:meio]), " ".join(palavras[meio:])]
+
+    def divide(n: int):
+        """Melhor divisão em exatamente n linhas, ou None se não couber."""
+        alvo = len(txt) / n
+        melhor, melhor_custo = None, None
+
+        def busca(inicio: int, restantes: int, atual: list[str]):
+            nonlocal melhor, melhor_custo
+            if restantes == 1:
+                ultima = " ".join(palavras[inicio:])
+                if not ultima or len(ultima) > max_chars:
+                    return
+                linhas = atual + [ultima]
+                custo = sum((len(x) - alvo) ** 2 for x in linhas)
+                if melhor_custo is None or custo < melhor_custo:
+                    melhor, melhor_custo = linhas, custo
+                return
+            for k in range(inicio + 1, len(palavras) - restantes + 2):
+                linha = " ".join(palavras[inicio:k])
+                if len(linha) > max_chars:
+                    break
+                busca(k, restantes - 1, atual + [linha])
+
+        busca(0, n, [])
+        return melhor
+
+    minimo = -(-len(txt) // max_chars)          # teto da divisão
+    for n in range(max(1, minimo), max_linhas + 1):
+        r = divide(n)
+        if r:
+            return r
+
+    # Não coube no limite: reparte em max_linhas e aceita o estouro, porque
+    # perder texto é pior que passar da margem.
+    tam = -(-len(palavras) // max_linhas)
+    return [" ".join(palavras[i:i + tam])
+            for i in range(0, len(palavras), tam)][:max_linhas]
 
 
 def ts_srt(t: float) -> str:
@@ -370,28 +417,62 @@ def escreve_srt(cues, caminho):
 
 CABECALHO_ASS = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
+PlayResX: {largura}
+PlayResY: {altura}
 WrapStyle: 2
 ScaledBorderAndShadow: yes
 YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Fala,{fonte},{tamanho},&H00FFFFFF,&H000000FF,&H00101010,&H96000000,-1,0,0,0,100,100,0,0,1,{contorno},{sombra},2,140,140,{margem},1
+Style: Fala,{fonte},{tamanho},{cor_texto},{cor_secundaria},{cor_contorno},{cor_fundo},-1,0,0,0,100,100,0,0,1,{contorno},{sombra},2,{margem_lateral},{margem_lateral},{margem},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
-def escreve_ass(cues, caminho, fonte, tamanho, contorno, sombra, margem):
+TOKENS = pathlib.Path(__file__).resolve().parent.parent / "marca" / "tokens.toml"
+
+
+def le_tokens(caminho: pathlib.Path) -> dict:
+    """Carrega marca/tokens.toml. Sem ele o script não desenha nada."""
+    if not caminho.exists():
+        sys.exit(f"Tokens da marca não encontrados: {caminho}\n"
+                 f"Ele é a fonte da verdade do visual; sem ele não dá para "
+                 f"saber o tamanho nem a margem de cada formato.")
+    with caminho.open("rb") as f:
+        return tomllib.load(f)
+
+
+def estilo_do_formato(tokens: dict, formato: str) -> dict:
+    """Junta cor, fonte e as medidas do formato pedido, num dicionário só."""
+    formatos = tokens.get("formato", {})
+    if formato not in formatos:
+        sys.exit(f"Formato {formato!r} não existe em {TOKENS.name}. "
+                 f"Há: {', '.join(sorted(formatos))}")
+    fm, cor = formatos[formato], tokens["cor"]
+    return {
+        "fonte": tokens["fonte"]["familia"],
+        "largura": fm["largura"], "altura": fm["altura"],
+        "tamanho": fm["tamanho"], "contorno": fm["contorno"],
+        "sombra": fm["sombra"],
+        "margem_lateral": fm["margem_lateral"],
+        "margem": fm["margem_inferior"],
+        "cor_texto": cor["texto"], "cor_secundaria": cor["secundaria"],
+        "cor_contorno": cor["contorno"], "cor_fundo": cor["fundo"],
+        "chars_por_linha": fm["chars_por_linha"],
+        "linhas_max": fm["linhas_max"],
+    }
+
+
+def escreve_ass(cues, caminho, estilo):
     with caminho.open("w", encoding="utf-8") as f:
-        f.write(CABECALHO_ASS.format(fonte=fonte, tamanho=tamanho,
-                                     contorno=contorno, sombra=sombra,
-                                     margem=margem))
+        f.write(CABECALHO_ASS.format(**estilo))
         for c in cues:
-            txt = "\\N".join(quebra_linhas(c["txt"]))
+            txt = "\\N".join(quebra_linhas(c["txt"],
+                                            estilo["chars_por_linha"],
+                                            estilo["linhas_max"]))
             f.write(f"Dialogue: 0,{ts_ass(c['ini'])},{ts_ass(c['fim'])},"
                     f"Fala,,0,0,0,,{txt}\n")
 
@@ -400,11 +481,18 @@ ap = argparse.ArgumentParser()
 ap.add_argument("words_tsv")
 ap.add_argument("--segmentos", default=None,
                 help="segmentos.txt do segmenta.py; descarta cues fora da FALA")
-ap.add_argument("--fonte", default="Inter")
-ap.add_argument("--tamanho", type=int, default=54)
-ap.add_argument("--contorno", type=float, default=3.2)
-ap.add_argument("--sombra", type=float, default=1.0)
-ap.add_argument("--margem", type=int, default=90)
+ap.add_argument("--formato", default="16x9",
+                help="chave de [formato.*] em marca/tokens.toml "
+                     "(16x9 para YouTube, 9x16 para Shorts/Reels)")
+ap.add_argument("--tokens", default=str(TOKENS),
+                help="outro arquivo de tokens da marca")
+# Os quatro abaixo sobrescrevem o token, para experimentar sem editar o
+# arquivo. O que der certo volta para marca/tokens.toml — não fica no dedo.
+ap.add_argument("--fonte", default=None)
+ap.add_argument("--tamanho", type=int, default=None)
+ap.add_argument("--contorno", type=float, default=None)
+ap.add_argument("--sombra", type=float, default=None)
+ap.add_argument("--margem", type=int, default=None)
 ap.add_argument("--cortes", default=None,
                 help="cortes.txt do corta.sh; remapeia os tempos para o "
                      "arquivo cortado e escreve out/<base>_final.*")
@@ -449,11 +537,19 @@ if args.cortes:
 
 cues = estica_rapidos(ajusta_tempos(funde_orfaos(monta_cues(palavras))))
 
+# O .srt não tem formato: é texto e tempo, sobe para o YouTube do jeito que
+# está. O .ass carrega a apresentação, então cada formato tem o seu — sem o
+# sufixo, gerar o vertical apagaria silenciosamente o horizontal.
 srt = prefixo.with_suffix(".srt")
-ass = prefixo.with_suffix(".ass")
+ass = prefixo.with_suffix(f".{args.formato}.ass")
 escreve_srt(cues, srt)
-escreve_ass(cues, ass, args.fonte, args.tamanho,
-            args.contorno, args.sombra, args.margem)
+estilo = estilo_do_formato(le_tokens(pathlib.Path(args.tokens)), args.formato)
+for chave, valor in (("fonte", args.fonte), ("tamanho", args.tamanho),
+                     ("contorno", args.contorno), ("sombra", args.sombra),
+                     ("margem", args.margem)):
+    if valor is not None:
+        estilo[chave] = valor
+escreve_ass(cues, ass, estilo)
 
 descartadas = n_total - n_apos_filtro
 for t in trocas:

@@ -76,14 +76,16 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 ├── out/        # _norm.mp4 (trabalho: video pronto, audio cru),
 │            # _audio.mp4 e _final.mp4 (entregaveis),
 │            # .txt, .segments.tsv, .segmentos.txt, .srt, .ass
+├── marca/      # tokens da identidade visual. Versionado.
 ├── scripts/    # versionado
 ├── docs/       # registro das decisões de arquitetura. Versionado.
 ├── importado/  # codigo de terceiros EM VALIDACAO. Fora do fluxo oficial.
 ├── models/     # modelos Whisper baixados. Descartável (redownload).
+├── .secrets/   # credencial OAuth e token do YouTube. 700, arquivos 600.
 └── .venv/      # ignorado pelo git
 ```
 
-`inbox`, `work`, `out`, `models` e `.venv` estão no `.gitignore`.
+`inbox`, `work`, `out`, `models`, `.secrets` e `.venv` estão no `.gitignore`.
 **Nunca versionar mídia nem pesos de modelo.**
 
 Os textos derivados da transcrição (`.txt`, `.segments.tsv`, `.segmentos.txt`,
@@ -115,9 +117,16 @@ python scripts/segmenta.py ~/video/work/<arquivo>.wav   # -> work/segmentos.txt
 ./scripts/audio.sh ~/video/out/<arquivo>_norm.mp4 --uniforme   # classe única
 
 # 5. Legenda: reagrupa as palavras em cues e aplica o glossário.
-#    Sai .srt (YouTube, sobe separado) e .ass (queima no vertical).
+#    O .srt é único e sobe separado no YouTube. O .ass carrega a aparência,
+#    então sai um por formato, com o estilo vindo de marca/tokens.toml.
 python scripts/legenda.py ~/video/work/<arquivo>.words.tsv \
-    --segmentos ~/video/out/<arquivo>.segmentos.txt
+    --segmentos ~/video/out/<arquivo>.segmentos.txt              # -> .16x9.ass
+python scripts/legenda.py ~/video/work/<arquivo>.words.tsv \
+    --segmentos ~/video/out/<arquivo>.segmentos.txt --formato 9x16   # -> .9x16.ass
+
+# 5b. Confere que a legenda é legível sobre o vídeo real, não sobre um cinza
+python scripts/valida-legenda.py ~/video/out/<arquivo>_audio.mp4 \
+    ~/video/out/<arquivo>.16x9.ass
 
 # 6. Humano cola a transcrição no chat -> recebe cortes.txt e as
 #    correções de texto novas (que viram linhas do glossario.tsv)
@@ -126,7 +135,7 @@ python scripts/legenda.py ~/video/work/<arquivo>.words.tsv \
 ./scripts/corta.sh ~/video/out/<arquivo>_audio.mp4 ~/video/work/cortes.txt
 
 # Queimar a legenda (só no vertical; no YouTube o .srt sobe separado):
-ffmpeg -i <entrada>.mp4 -vf "ass=out/<arquivo>.ass" \
+ffmpeg -i <entrada>.mp4 -vf "ass=out/<arquivo>.9x16.ass" \
     -c:v libx264 -crf 20 -preset fast -pix_fmt yuv420p -r 60 \
     -c:a copy -metadata:s:a:0 language=por <saida>.mp4
 
@@ -261,6 +270,10 @@ resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o times
   `browser-use/video-use` (MIT). Decisão de 30/08/2026: importar peça por
   peça, em `importado/`, com validação medida antes de qualquer coisa
   migrar para `scripts/`. Ler antes de mexer em `importado/`.
+- `docs/03-sincronismo-multipista.md` — como sincronizar gravações separadas
+  da mesma música, medido em 30/08/2026 nos dois projetos de `~/Music/
+  Projetos`. **Ler antes de tentar casar duas tomadas por correlação** — a
+  correlação global falha em música repetitiva e falha mentindo.
 
 ## Segmentação fala/música (Fase 1 — passo 2 feito)
 
@@ -510,6 +523,83 @@ IDE compartilha o destino da IDE. Quando algo "fecha sozinho" durante um
 trabalho pesado, o primeiro lugar a olhar é
 `journalctl --since today | grep -i oom`, não o log da aplicação.
 
+## Identidade visual — medida em 30/08/2026
+
+**A paleta é terracota/salmão, extraída do material escrito do autor**
+(`~/Documents/proj-harmonia`), e a tipografia da marca é Bitstream Charter.
+Uma primeira proposta em turquesa foi descartada: o argumento que a sustentava
+— "o acento precisa contrastar com o material, que é 96% quente" — não
+sobreviveu à medição seguinte, que estabeleceu que **o acento nunca vai sobre a
+foto**. Detalhes e a lição sobre métrica que mente em `docs/04-identidade.md`.
+
+A aparência do canal vive em `marca/tokens.toml` e é **lida pelos scripts**,
+não consultada por uma pessoa. Um manual de marca é lido duas vezes e
+esquecido; o que sobrevive a 47 episódios é o valor que o script aplica
+sozinho. O porquê de cada número está em `docs/04-identidade.md`.
+
+O `legenda.py` ganhou `--formato`, e há dois: `16x9` (YouTube longo) e `9x16`
+(Shorts e Reels). O `.srt` continua único — é texto e tempo, sobe separado. O
+`.ass` carrega a apresentação, então sai um por formato: `<base>.16x9.ass` e
+`<base>.9x16.ass`. Sem o sufixo, gerar o vertical apagava o horizontal em
+silêncio.
+
+**A métrica da fonte foi medida, não estimada.** Renderizando com o próprio
+libass em seis tamanhos, a largura de uma linha em Inter Bold é exatamente
+linear: `n_caracteres × 0,4119 × tamanho`, com a caixa a `0,8148 × tamanho`.
+É isso que permite dimensionar um formato novo por cálculo. Se a fonte mudar,
+remedir.
+
+**O vertical não é o horizontal reescalado.** O critério é caracteres por
+linha — 29 contra 42 —, porque linha curta lê melhor em tela pequena e em
+movimento. Daí fonte 78, margem lateral 60 e até 3 linhas.
+
+### O que só apareceu medindo: metade das linhas saía da tela
+
+O `.ass` usa `WrapStyle: 2`, que desliga a quebra automática do libass: a linha
+que sai do Python é a que vai para a tela, inteira. E o `quebra_linhas` tratava
+os 42 caracteres do 16:9 como se fossem universais. No vertical, com fonte 78,
+**10 das 16 linhas do `ep00` e 17 das 32 do `improviso_2` saíam da tela** — a
+pior com 646 px para fora, texto que não existia para quem assistisse, sem uma
+única mensagem de erro.
+
+A correção separou dois números que estavam confundidos num só:
+
+- **o teto de 84 caracteres por cue é norma de leitura** e define os tempos.
+  Continua no `legenda.py`, igual nos dois formatos, porque texto e tempo não
+  podem divergir entre o longo e o corte vertical tirado dele — é isso que
+  torna o corte barato;
+- **onde a linha quebra é apresentação** e foi para os tokens.
+
+Verificado depois: o `.ass` de 16:9 saiu byte a byte igual ao de antes da
+mudança, e os cues dos dois formatos são idênticos por diff.
+
+### O contorno é o que sustenta a legenda, e agora tem número
+
+`scripts/valida-legenda.py` renderiza cada cue com e sem a legenda, usa os
+pixels que mudaram como máscara e mede contraste WCAG contra o que havia por
+baixo. No `ep00`:
+
+| | pior contraste sem contorno | pixels abaixo de 4,5:1 | com contorno |
+|---|---|---|---|
+| 16:9 | 1,2:1 | 7,6% | 11,5:1 |
+| 9:16 | 1,6:1 | 12,0% | 11,5:1 |
+
+Sem o contorno, 7,6% do texto no horizontal e 12,0% no vertical ficariam
+ilegíveis, e o pior caso é branco sobre parede branca estourada. Com ele, o
+texto passa a ser julgado contra o próprio contorno e o fundo deixa de
+importar. Quem quiser afinar o contorno por estética tem aqui o número a
+vigiar.
+
+### Duas armadilhas silenciosas de ffmpeg
+
+**`-ss` antes de `-i` rebaseia os timestamps para zero**, e o filtro `ass`
+passa a procurar a legenda na hora errada — o frame sai limpo e a medição
+inteira vira fundo contra fundo, sem acusar nada. Use `-copyts`.
+
+**`%` solto no `drawtext` descarta o rótulo inteiro** com um warning `Stray %`.
+O texto precisa chegar ao filtro como `\%`, depois de o bash e o parser do
+filtergraph comerem uma barra cada um.
+
 ## Import do browser-use/video-use — em validação
 
 Desde 30/08/2026 há uma importação parcial e sob teste do
@@ -534,6 +624,191 @@ fala do `ep00` estão todos musicalmente ocupados (−5,9 a −15,8 dB relativos
 ao pico). A heurística de corte por silêncio do video-use teria gerado 4
 candidatos, todos errados — n=4, 100% de falso positivo. É a confirmação
 mais direta que temos da remoção do auto-editor.
+
+## Sincronismo de múltiplas tomadas — 30/08/2026
+
+Dois projetos fora deste repositório reusam estes scripts e o `lib.sh`:
+`~/Music/Projetos/like-a-stone` (três overdubs de violão, mix no Audacity) e
+`~/Music/Projetos/oficina-g3` (violão + bateria). Cada um tem `CLAUDE.md`
+próprio com as medições; o que generaliza está em
+`docs/03-sincronismo-multipista.md`.
+
+`~/Music/Projetos/CLAUDE.md` reúne o que vale para todos eles — e é o arquivo
+que carrega sozinho quando a sessão é aberta lá dentro, situação em que **este
+arquivo aqui não carrega**, porque `~/video` não é pai de `~/Music`. Há outros
+seis projetos naquela pasta ainda não processados, cinco deles com a mesma
+forma do `like-a-stone` (`.aup3` + `.mp4`), ou seja, com o sincronismo já
+gravado esperando ser lido.
+
+Duas ferramentas novas em `scripts/`, úteis para qualquer par de gravações:
+
+```bash
+python scripts/alinha-faixas.py REFERENCIA.wav OUTRA.wav   # WAV mono 48 kHz
+./scripts/mixa-alinhado.sh REFERENCIA OUTRA OFFSET_MS [PREFIXO]
+```
+
+Três coisas que valem para além delas:
+
+**Procure a medida antes de estimar o sinal.** No `like-a-stone` o sincronismo
+já estava gravado no `.aup3` do Audacity — a tabela `project` guarda a timeline
+em XML binário, e o `offset` de cada `<waveclip>` é exato. A correlação entrou
+como segunda opinião e bateu dentro de 1 amostra. É o mesmo princípio dos gaps
+de silêncio do `ep00`: preferir o dado que existe à heurística sobre o sinal.
+
+**Correlação global mente em música repetitiva.** Medido no `oficina-g3`: o lag
+saltava entre −6,4 s e −17,9 s com razão pico/ruído acima de 8 em *todas* as 23
+janelas. Música casa consigo mesma a cada compasso, então a correlação sempre
+acha um pico convincente, em qualquer lugar — e a confiança do pico não detecta
+o erro. O que funciona é ancorar numa passagem curta que o autor aponte,
+correlacionar **envelope de ataque** (timbre separa os instrumentos, ataque é o
+que compartilham), e olhar a separação do segundo candidato: 64% do melhor era
+confiável, os empates de 93% da busca global não eram.
+
+**Depois de achar o offset, meça a deriva.** Se a tendência for monotônica, um
+offset fixo não segura a faixa. Se for flutuação sem tendência, segura. No
+`oficina-g3` a tendência foi de +47 ms em 50 s — ruído — mesmo com cada faixa
+flutuando ±2% de andamento por conta própria.
+
+**A conferência é ouvir as fontes separadas**, uma em cada canal. A soma
+esconde erro de sincronismo: dois ataques a 80 ms viram um ataque gordo.
+
+### Armadilhas de ffmpeg e de AAC, vistas no like-a-stone
+
+Quatro coisas que apareceram ao montar o vídeo de lá e que mordem aqui também.
+
+**O `scale=1920:1080` do `processa.sh` quebra em vídeo vertical.** Dois dos três
+vídeos de lá são gravados **3840x2160 com `rotation=-90`** nos metadados: são
+*exibidos* 2160x3840. O ffmpeg gira sozinho antes dos filtros (autorotate), então
+o `scale` recebe o quadro já em pé. Como o `scale` daqui é fixo, um vídeo gravado
+com o celular em pé sai **esmagado, sem erro nenhum**. Ler `width`/`height` não
+detecta: é preciso `ffprobe -show_entries stream_side_data=rotation` e trocar as
+dimensões quando a rotação for ±90. Lá o sintoma foi um painel saindo 608x1080.
+
+**O priming de 1024 amostras não é só do `audio.sh`.** Este arquivo já registrava
+21,33 ms como atraso do codificador AAC, medido por correlação no `audio.sh`. Lá
+o mesmo número reapareceu por outro caminho: o `.m4a` tem `elst` com
+`media_time: 0`, então o priming **não é descartado na decodificação**. Antes de
+comparar tempos entre um `.m4a`/`.mp4` e qualquer outra coisa, conferir o `elst`.
+O sintoma é inconfundível: viés constante, idêntico para todas as fontes, valendo
+exatamente 1024 amostras.
+
+**Nitidez baixa é ausência de sinal, não erro** — e isso completa, sem contradizer,
+o que a seção acima diz sobre o `oficina-g3`. Lá em cima o problema é pico alto e
+*errado*, porque música repetitiva casa consigo mesma. Aqui é o oposto: uma
+verificação acusou −112 ms num trecho onde a fonte medida está coberta no mix
+(rms 0,0099 contra 0,0579 de outra camada) e a correlação não achava pico —
+nitidez 4,2 contra 8 a 10 das medidas boas; as outras duas fontes do mesmo trecho
+davam 0,00 e −0,06 ms. Juntando os dois casos: **a nitidez sozinha não confirma
+nem rejeita.** Alta pode estar errada, baixa pode ser só silêncio. Ela diz onde
+olhar; quem decide é medir outra fonte do mesmo trecho, ou outro trecho da mesma
+fonte.
+
+**`-t` vence `-frames:v`, e contagem de frames se fixa.** Duas armadilhas que
+valem para o `corta.sh` e para qualquer concat: um `-ss` que não cai em fronteira
+de frame muda a contagem de saída (a grade do filtro `fps` fecha um frame antes),
+e contagem desigual quebra concat e grade mesmo quando nada está desalinhado — a
+correção é `-frames:v` explícito, com os limites convertidos para **frames** antes
+de virarem tempo, para os arredondamentos não se acumularem. E com `-t` e
+`-frames:v` juntos o `-t` corta primeiro: o script de lá anunciava 1523 frames,
+entregava 1522 e aparava 10 ms do fim do áudio.
+
+## Publicação no YouTube — 30/08/2026
+
+Três scripts novos, todos em `scripts/` porque servem qualquer episódio:
+`youtube.py` (metadados pela Data API v3), `capa.py` (acha os frames que
+merecem virar capa) e `capa_arte.py` (monta a arte da capa).
+
+### A separação que importa: escrever metadado não é publicar
+
+`youtube.py aplica` mexe só na parte `snippet`. Mudar visibilidade é o
+subcomando `publica`, separado, e ir para `public` exige `--sim`. O motivo é
+que essa é a única ação irreversível da série: vídeo que ficou público por
+trinta segundos pode ter sido visto, indexado e notificado a inscritos.
+`--seco` mostra tudo que seria enviado, inclusive a descrição inteira, sem
+enviar nada.
+
+### Armadilhas da Data API, todas encontradas na prática
+
+- **`videos.update` sobrescreve a parte inteira.** Campo que não for reenviado
+  dentro de `snippet` é APAGADO, não preservado. Por isso o script lê o
+  snippet atual, funde e só então envia. `categoryId` é obrigatório no envio.
+- **Rascunho do Studio não existe para a API.** Vídeo largado no meio do
+  assistente de upload não aparece em `playlistItems`. Basta terminar o
+  assistente salvando como Privado.
+- **App em modo Teste mata o token a cada 7 dias.** Publicar o app tiraria
+  esse limite, mas o Console exige página inicial, política de privacidade e
+  termos de serviço — três URLs públicas, exigência pensada para app que
+  atende estranhos. Para uso próprio não compensa: fica em Teste, com a conta
+  como usuário de teste, e reautoriza quando expirar. O script avisa com
+  "token inválido ou revogado" em vez de estourar erro de API.
+- **"Feito para crianças" desliga os comentários, e chega ligado sem avisar.**
+  O `like-a-stone` subiu com `madeForKids: True` — ninguém marcou de propósito.
+  O efeito é grande e silencioso: vídeo marcado como infantil perde comentário,
+  notificação para inscritos, salvar em playlist, telas finais, cards e anúncio
+  personalizado. A pergunta "por que não tem comentário?" e a pergunta "marco
+  como infantil?" são a **mesma pergunta**, e é fácil não perceber. Conferir
+  sempre com `youtube.py lista` seguido do status, e corrigir com
+  `youtube.py infantil <id> --como nao`. O campo gravável é
+  `selfDeclaredMadeForKids`; `madeForKids` é derivado e leva alguns segundos
+  para acompanhar — ler logo depois de escrever mostra o valor velho e parece
+  que a escrita falhou.
+- **Comentário não tem campo na Data API v3.** Conferido campo por campo no
+  recurso `video`: não existe. Ligar, desligar ou moderar é só no Studio. O que
+  a API decide é a declaração de conteúdo infantil, que por tabela desliga tudo.
+- **Ao escrever `status`, mandar só os campos graváveis.** `privacyStatus`,
+  `license`, `embeddable`, `publicStatsViewable` e `selfDeclaredMadeForKids`.
+  Reenviar um derivado como `madeForKids` faz a chamada falhar.
+- **Cota**: `lista` 1 unidade, `aplica` 50, `capa` 50, `publica` 50, contra
+  10.000 por dia. Irrelevante. Só `videos.insert` pesaria (1600) — e o upload
+  não está no script de propósito: subir pelo Studio dá barra de progresso e
+  retomada, que a API não dá.
+- Segredos em `.secrets/` (modo 700, arquivos 600, no `.gitignore`). O
+  `client_secret.json` precisa ser do tipo **App para computador**; um cliente
+  `web` exige URI de redirecionamento cadastrada e o fluxo local falha.
+
+### Instagram: o que não tem script
+
+O Reel sobe na mão. Três coisas aprendidas em 30/08/2026 que valem para os
+próximos:
+
+- **O Instagram escolhe a capa sozinho, e escolhe mal.** No `like-a-stone` ele
+  pegou a cartela de créditos — fim do vídeo, escurecido, sem ninguém tocando.
+  É o pior frame do arquivo. Sempre trocar: ou por um frame limpo do meio, ou
+  pela vertical 1080x1920 que o `capa_arte.py` gera. No desktop nem sempre dá
+  para subir imagem; no app dá.
+- **"Add collaborators" é o campo que mais rende e o mais esquecido.** Marcando
+  quem participou, o Reel aparece no perfil da pessoa também, com o mesmo
+  contador. É o único campo do formulário que multiplica alcance de graça.
+- **A legenda é arquivo, como a do YouTube.** Fica no projeto
+  (`legenda-instagram.txt`), com o corte do feed em mente: o Instagram trunca
+  perto de 125 caracteres, então a primeira linha tem que se sustentar sozinha.
+
+### Escolha de capa: o que a máquina faz e o que ela não faz
+
+`capa.py` pontua nitidez (variância do laplaciano do luma), exposição e
+equilíbrio de luz, e impõe separação mínima no tempo — senão os dez melhores
+são o mesmo instante dez vezes. Ele não escolhe: reduz 1523 frames a uma dúzia
+de candidatos e monta a folha de contato. Expressão é julgamento humano.
+
+**Nitidez premia textura, não composição.** Na primeira passada os doze
+candidatos foram todos de trechos empilhados, porque duas pilhas de violão têm
+o dobro de bordas de um plano de rosto. A correção não foi mexer na fórmula:
+foi restringir a busca aos trechos de tela cheia com `--trechos`. Vale para
+qualquer vídeo com layout misto.
+
+### Duas medidas que corrigiram a arte da capa
+
+- **Escalar primeiro, recortar depois.** Recortar 1080x1253 e escalar para
+  470x720 aplica 0,435 na horizontal e 0,575 na vertical: o rosto sai
+  espremido, e sem erro nenhum. Com
+  `scale=...:force_original_aspect_ratio=increase` seguido de `crop` a
+  proporção se mantém.
+- **Contraste ruim nem sempre se conserta clareando a letra.** Na capa
+  vertical o bloco cai sobre o tampo do violão e âmbar sobre âmbar some. Com o
+  fundo em luma 122, **nem branco puro chega aos 4,5:1** que texto pequeno
+  pede — a conta fecha em 4,34:1. O que faltava era escurecer o fundo. Com um
+  scrim em rampa (`geq` sobre o alfa) o pior dos três candidatos subiu de
+  3,50:1 para 4,69:1.
 
 ## Pendências conhecidas
 
@@ -563,6 +838,10 @@ mais direta que temos da remoção do auto-editor.
 - [x] ~~`processa.sh` aplicando `loudnorm` uniforme~~ — resolvido na v3: ele não
       toca mais no áudio, e o `audio.sh` virou o único produtor. Ver a decisão
       "processa.sh não trata áudio (v3)" acima.
+- [ ] **Capa vertical de Short é manual.** O `capa_arte.py` gera o 1080x1920,
+      mas não achei caminho de API para o seletor de capa de Short: só o
+      `thumbnails.set` 16:9, que alimenta busca e página do vídeo. A vertical
+      sobe pelo Studio, na mão.
 - [ ] Medir a segmentação em episódios com alternância fala/música real. Os dois
       episódios medidos até agora são o mesmo arquivo, com uma fronteira só.
       `inbox/improviso_2.mp4` (289s) ainda não foi processado.
@@ -573,10 +852,31 @@ mais direta que temos da remoção do auto-editor.
 - [ ] **Import video-use, item 2** — auto-avaliação do render: rodar o
       `timeline.py` no arquivo cortado, em cada emenda, procurando salto
       visual, pico de onda e legenda coberta.
-- [ ] **Import video-use, item 4** — medir a margem da legenda no vertical
-      dentro do app. Eles põem a legenda a ~31% da altura alegando que a UI
-      de Reels/Shorts cobre os 25–30% inferiores; a nossa está a 8,3%. É o
-      único item do import que afeta o que já está pronto para publicar.
+- [ ] **Import video-use, item 4 / safe area** — parcialmente endereçado: o
+      formato `9x16` já põe a legenda a 25% da altura, contra os 8,3% do
+      horizontal. Mas **os 25% não foram medidos** — vieram da documentação do
+      video-use, e é a única peça da identidade visual apoiada em fonte
+      secundária. Medir com `./scripts/gabarito-safe-area.sh`: publique o
+      vídeo-régua como rascunho no Reels e no Shorts, veja no print até onde a
+      interface cobre e escreva o número em `marca/tokens.toml`.
+- [ ] Validar o `9x16` sobre um corte vertical de verdade. O que foi medido
+      até agora usa crop central do 16:9, que serve para contraste mas não é o
+      enquadramento que vai ao ar.
+- [ ] **Duas identidades visuais convivem no repositório.** `scripts/marca.py`
+      e `scripts/capa_arte.py` geram as mesmas peças (1280x720 e 1080x1920) com
+      tipografias e paletas próprias, e o segundo tem as cores escritas no
+      código. As duas convergiram sozinhas — fundo e texto praticamente
+      idênticos, acento a 8° de distância em matiz, serifa nos dois casos —,
+      então unificar é ajuste fino, não redesenho. Fazer o `capa_arte.py` ler
+      `marca/tokens.toml`. Ver "Existem duas identidades" em
+      `docs/04-identidade.md`.
+- [ ] ~~Escolher uma cor de destaque antes dos templates.~~ Feito: terracota
+      `#AE4E2A` e salmão `#DEA87E`, medidos no material escrito do autor.
+
+- [ ] **`processa.sh` distorce vídeo vertical.** O `scale=1920:1080` é fixo e
+      não olha `rotation`. Um vídeo gravado com o celular em pé sai esmagado,
+      sem erro. Ver "Armadilhas de ffmpeg e de AAC, vistas no like-a-stone".
+      Corrigir antes que entre um vertical no `inbox/`, não depois.
 - [ ] Os parâmetros das cadeias do `audio.sh` (`afftdn=nr=10:nf=-30`,
       `acompressor` em −18 dB / 3:1) foram escolhidos por convenção, não medidos.
       A degradação da transcrição no áudio tratado sugere que o denoise está
@@ -612,6 +912,22 @@ O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
   em contrário.** Olhar `journalctl --since today | grep -i oom` antes do log da
   aplicação. Processo pesado disparado do terminal da IDE compartilha o cgroup — e o
   destino — dela. Ver "O corte que derrubava a IDE".
+- **Antes de estimar sincronismo no sinal, procure se ele já está gravado** num
+  projeto de DAW. E desconfiar de correlação cruzada em material repetitivo: ela
+  acha pico convincente em qualquer lugar. Ver `docs/03-sincronismo-multipista.md`.
+- **A nitidez de uma correlação não confirma nem rejeita sozinha.** Pico alto
+  pode ser o compasso errado (`oficina-g3`); pico baixo pode ser só a fonte
+  calada naquele trecho (`like-a-stone`). Reportar sempre o valor com a nitidez,
+  dizer "inconclusivo" em vez de acusar, e desempatar com outra fonte do mesmo
+  trecho ou outro trecho da mesma fonte.
+- **Contraste ruim quase nunca se conserta clareando a letra.** Faça a conta
+  antes de mexer: com o fundo em luma 122, nem branco puro passa de 4,34:1, e o
+  mínimo para texto pequeno é 4,5:1. Se a conta não fecha nem no branco, o que
+  falta é escurecer o fundo — scrim, não fonte mais clara.
+- **Ao recortar e escalar, escalar primeiro.** Recortar numa proporção e
+  escalar para outra distorce sem erro nenhum, e rosto espremido não salta aos
+  olhos numa miniatura. `scale=...:force_original_aspect_ratio=increase`
+  seguido de `crop` mantém a proporção por construção.
 - **ffmpeg novo passa pelo `ffmpeg_lim` do `scripts/lib.sh`**, não pelo `ffmpeg` direto,
   sempre que processar arquivo inteiro. E desconfiar de grafo que reusa a mesma entrada
   em vários ramos: é o padrão que enfileira frames decodificados até estourar.

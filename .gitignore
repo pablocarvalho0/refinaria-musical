@@ -5,3 +5,4 @@ out/
 models/
 __pycache__/
 *.pyc
+.secrets/
