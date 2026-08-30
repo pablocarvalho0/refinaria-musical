@@ -15,17 +15,20 @@ aplicar os cortes já decididos.
 ## Requisitos
 
 - Ubuntu (testado no 24.04)
-- ffmpeg com suporte a `-hwaccel cuda` (opcional, mas acelera muito)
-- GPU NVIDIA (opcional — há fallback para CPU)
+- ffmpeg
 - Python 3.12
-- Syncthing
-- Celular Android com Syncthing-Fork
+
+Opcionais, todos com caminho alternativo:
+
+- GPU NVIDIA e ffmpeg com `-hwaccel cuda` — aceleram muito, mas há fallback para CPU
+- Syncthing e um Android com Syncthing-Fork — só para a ingestão; ver
+  [Ingestão](#ingestão--como-o-vídeo-chega-à-inbox)
 
 ## Instalação
 
 ```bash
 # Sistema
-sudo apt install ffmpeg syncthing mpv
+sudo apt install ffmpeg mpv
 
 # Ambiente Python
 git clone <este-repo> ~/video && cd ~/video
@@ -37,11 +40,21 @@ pip install -r requirements.txt
 mkdir -p inbox work out
 ```
 
-### Syncthing
+## Ingestão — como o vídeo chega à `inbox`
 
-No Ubuntu:
+O contrato do pipeline é simples: **coloque um `.mp4` em `~/video/inbox` e rode o
+`processa.sh`**. Cabo USB, `adb pull`, `scp`, cartão SD — qualquer coisa serve. A pasta
+é ignorada pelo git, junto com `work/`, `out/` e `models/`: o repositório versiona a
+receita, não os ingredientes nem o prato.
+
+O que descrevo abaixo é como *eu* faço, não um requisito.
+
+### Opcional: Syncthing
+
+Sincronização direta do celular, sem cabo e sem nuvem. No Ubuntu:
 
 ```bash
+sudo apt install syncthing
 systemctl --user enable --now syncthing
 loginctl enable-linger $USER   # mantém rodando após logout
 ```
@@ -58,7 +71,13 @@ Configuração da pasta compartilhada:
 | Celular | **Send Only** | mudanças no PC não voltam para o aparelho |
 | Ubuntu | **Receive Only** | o PC nunca propaga exclusões |
 
-Destino no Ubuntu: `~/video/inbox`.
+Destino no Ubuntu: **`~/video/inbox`, nunca `~/video`.**
+
+> **Aponte o Syncthing só para `~/video/inbox`.** Sincronizar `~/video` inteiro colocaria
+> o diretório `.git` dentro da pasta compartilhada, e com o celular em Send Only o
+> Syncthing passaria a ter licença para sobrescrever e apagar objetos do repositório. Os
+> masters você regrava e as transcrições você refaz; o histórico do projeto é a única
+> coisa aqui que não dá para recriar.
 
 Desative a otimização de bateria para o app e restrinja a sincronização a Wi-Fi.
 
@@ -177,8 +196,9 @@ df -h /home
 du -sh inbox work out
 ```
 
-Masters em 4K ocupam ~7 GB por 20 min. Arquive ou apague após publicar — como a `inbox`
-está em Receive Only, apagar no Ubuntu não afeta o celular.
+Masters em 4K ocupam ~7 GB por 20 min. Arquive ou apague após publicar. Se você usa o
+Syncthing como descrito acima, a `inbox` está em Receive Only: apagar no Ubuntu não
+propaga a exclusão para o celular.
 
 ## Estrutura
 
@@ -192,7 +212,7 @@ está em Receive Only, apagar no Ubuntu não afeta o celular.
 │   ├── transcreve.sh  # wrapper que configura LD_LIBRARY_PATH
 │   ├── transcreve.py  # faster-whisper
 │   └── corta.sh       # aplica cortes semânticos
-├── inbox/             # (ignorado) chega do celular
+├── inbox/             # (ignorado) entrada — o vídeo do celular chega aqui
 ├── work/              # (ignorado) intermediários
 └── out/               # (ignorado) entregáveis
 ```
