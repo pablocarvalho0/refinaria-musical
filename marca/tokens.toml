@@ -158,7 +158,15 @@ linhas_max = 3
 # cobre com botões, legenda do post e barra de progresso. Com três linhas, o
 # topo do bloco fica a 37% da altura, ainda longe do rosto no terço superior.
 #
-# ATENÇÃO: os 25% vêm da documentação do browser-use/video-use (que usa 31%),
-# não de medição no aplicativo. Para medir de verdade, publique
-# out/gabarito-safe-area.mp4 como rascunho e veja qual faixa a UI cobre.
-# Enquanto isso não for feito, este número é a melhor estimativa, não um fato.
+# DECIDIDO EM 30/08/2026: adotar os 25% do browser-use/video-use sem medir.
+#
+# É o único número deste arquivo que não veio de medição própria — vem da
+# documentação deles (que usa 31%). A decisão foi consciente: o padrão importado
+# é razoável, o custo de errar é uma linha aqui, e não vale segurar publicação
+# por isso. Se em algum episódio a legenda aparecer coberta pela interface do
+# Reels ou do Shorts, o caminho já está pronto: rode
+# ./scripts/gabarito-safe-area.sh, publique o vídeo-régua como rascunho, veja no
+# print até onde a interface cobre e corrija este número.
+#
+# Ou seja: não é uma lacuna esquecida, é um valor emprestado com a fonte
+# declarada e o teste engatilhado.

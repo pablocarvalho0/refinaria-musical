@@ -856,13 +856,13 @@ qualquer vídeo com layout misto.
 - [ ] **Import video-use, item 2** — auto-avaliação do render: rodar o
       `timeline.py` no arquivo cortado, em cada emenda, procurando salto
       visual, pico de onda e legenda coberta.
-- [ ] **Import video-use, item 4 / safe area** — parcialmente endereçado: o
-      formato `9x16` já põe a legenda a 25% da altura, contra os 8,3% do
-      horizontal. Mas **os 25% não foram medidos** — vieram da documentação do
-      video-use, e é a única peça da identidade visual apoiada em fonte
-      secundária. Medir com `./scripts/gabarito-safe-area.sh`: publique o
-      vídeo-régua como rascunho no Reels e no Shorts, veja no print até onde a
-      interface cobre e escreva o número em `marca/tokens.toml`.
+- [~] **Import video-use, item 4 / safe area** — resolvido por decisão, não por
+      medição. O formato `9x16` põe a legenda a 25% da altura (contra 8,3% do
+      horizontal), número emprestado da documentação do video-use. Decidido em
+      30/08/2026 seguir assim: o padrão importado é razoável e o custo de errar
+      é uma linha no `tokens.toml`. **Reabrir só se uma legenda aparecer coberta
+      pela interface** — aí `./scripts/gabarito-safe-area.sh` mede em cinco
+      minutos. Não é lacuna, é valor emprestado com fonte declarada.
 - [ ] Validar o `9x16` sobre um corte vertical de verdade. O que foi medido
       até agora usa crop central do 16:9, que serve para contraste mas não é o
       enquadramento que vai ao ar.

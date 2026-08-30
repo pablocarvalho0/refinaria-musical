@@ -127,7 +127,7 @@ parede clara e a fonte maior cobre mais área.
 Isso também dá o critério para mexer no contorno depois: se alguém quiser
 afiná-lo por estética, o número a vigiar é a última coluna, não o gosto.
 
-## O que NÃO foi medido: a safe area
+## A safe area: um valor emprestado, por decisão
 
 `margem_inferior = 480` (25% da altura) é a única peça desta identidade
 apoiada em fonte secundária: vem da documentação do `browser-use/video-use`,
@@ -142,8 +142,14 @@ régua de 8 segundos rotulada em porcentagem e em pixels, com 25% em amarelo e
 procedimento: publicar como rascunho no Reels e no Shorts, tirar print dos
 dois, ver até onde a interface cobre, e escrever o valor medido nos tokens.
 
-Enquanto isso não for feito, os 25% são a melhor estimativa disponível, não um
-fato — e está assim marcado no `tokens.toml`.
+**Decisão de 30/08/2026: seguir com os 25% sem medir.** O padrão importado é
+razoável, o custo de errar é uma linha no `tokens.toml`, e não vale segurar
+publicação por isso. O gabarito fica pronto para o dia em que uma legenda
+aparecer coberta — aí a medição leva cinco minutos e resolve para sempre.
+
+A distinção importa para quem ler isto depois: não é uma lacuna esquecida, é um
+valor emprestado com a fonte declarada e o teste já engatilhado. Todo o resto
+deste documento tem medição própria atrás; este item tem procedência.
 
 ## Uma armadilha de ffmpeg que custou duas tentativas
 
