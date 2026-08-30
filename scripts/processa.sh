@@ -33,6 +33,7 @@
 # Uso: ./processa.sh ~/video/inbox/20260824_135542.mp4
 
 set -euo pipefail
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 IN="${1:?uso: $0 <arquivo.mp4>}"
 [[ -f "$IN" ]] || { echo "Arquivo não encontrado: $IN" >&2; exit 1; }
@@ -81,7 +82,7 @@ else
 fi
 
 echo "==> 1/2  Normalizando video (1080p60, x264 crf=$CRF)"
-time ffmpeg -y -hide_banner -loglevel warning -stats \
+time ffmpeg_lim -y -hide_banner -loglevel warning -stats \
   -hwaccel cuda -i "$IN" \
   -vf "scale=1920:1080" -r 60 \
   -c:v libx264 -crf "$CRF" -preset "$PRESET" -pix_fmt yuv420p \

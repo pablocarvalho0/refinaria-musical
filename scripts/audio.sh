@@ -50,6 +50,7 @@
 #    defasagem existia e valia 21,33 ms.
 
 set -euo pipefail
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 VIDEO="${1:?uso: $0 <video_norm.mp4> [--uniforme]}"
 MODO="${2:-}"
@@ -286,7 +287,7 @@ echo "==> 4/5  Renderizando audio e remuxando"
 # mesmo grafo é usado na medição, onde $SRC é a única entrada. Inverter
 # a ordem faria o render processar o áudio do container de vídeo. Já
 # aconteceu; por isso o comentário.
-time ffmpeg -y -hide_banner -loglevel warning -stats \
+time ffmpeg_lim -y -hide_banner -loglevel warning -stats \
   -i "$SRC" -i "$VIDEO" \
   -filter_complex_script "$TMP/render.txt" \
   -map 1:v:0 -map "[a]" \

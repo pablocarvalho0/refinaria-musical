@@ -28,6 +28,7 @@ GAP_QUEBRA = 0.70       # pausa entre palavras que fecha o cue
 FOLGA_FIM = 0.20        # respiro depois da última palavra
 GAP_MINIMO = 0.08       # espaço entre cues, para o corte ser visível
 MAX_CPS = 17.0          # velocidade de leitura confortável, char/s
+MIN_PALAVRA_NO_CORTE = 0.50   # fração audível para a palavra entrar na legenda
 
 FORTE = ".!?…"          # pontuação que sempre fecha o cue
 FRACA = ",;:"           # fecha só se o cue já está razoavelmente cheio
@@ -143,6 +144,67 @@ def aplica_glossario(palavras: list[dict],
     return saida, trocas
 
 
+def le_cortes(caminho: pathlib.Path) -> list[tuple[float, float]]:
+    """Trechos a MANTER do cortes.txt, no mesmo formato que o corta.sh lê."""
+    trechos = []
+    for linha in caminho.read_text(encoding="utf-8").splitlines():
+        if linha.startswith("#") or not linha.strip():
+            continue
+        campos = linha.split()
+        if len(campos) < 2:
+            continue
+        trechos.append((parse_hms(campos[0]), parse_hms(campos[1])))
+    trechos.sort()
+    return trechos
+
+
+def sobra(p: dict, s_ini: float, s_fim: float) -> float:
+    """Fração da palavra que o corte preserva.
+
+    Palavra que só encosta no trecho vira fragmento inaudível: no
+    improviso_2 o "aí" de 60,850–61,730 perde 93% de si para o corte
+    que entra em 61,670, e entrava na legenda inteiro. Quem lê vê uma
+    palavra que ninguém falou.
+    """
+    dur = p["fim"] - p["ini"]
+    if dur <= 0:
+        return 1.0 if s_ini <= p["ini"] < s_fim else 0.0
+    return max(0.0, min(p["fim"], s_fim) - max(p["ini"], s_ini)) / dur
+
+
+def remapeia_cortes(palavras: list[dict],
+                    trechos: list[tuple[float, float]]) -> tuple[list[dict], int]:
+    """Leva as palavras da timeline original para a do arquivo cortado.
+
+    O corta.sh concatena os trechos mantidos, então tudo que vem depois de
+    uma emenda anda para trás. Sem isso a legenda do arquivo cortado sai
+    deslocada pela soma do que foi removido antes dela — no improviso_2,
+    102s no último trecho.
+
+    A última palavra de cada trecho recebe `corte_depois`, para o cue
+    fechar na emenda: as palavras vizinhas passam a ficar a milissegundos
+    uma da outra, e sem a marca o monta_cues juntaria num cue só duas
+    falas que estavam a um minuto de distância.
+    """
+    saida, acumulado, mantidas = [], 0.0, 0
+    for s_ini, s_fim in trechos:
+        dentro = [p for p in palavras
+                  if sobra(p, s_ini, s_fim) >= MIN_PALAVRA_NO_CORTE]
+        for p in dentro:
+            q = dict(p)
+            # Clampa a palavra que encosta na fronteira. O corte é feito na
+            # fronteira de palavra de propósito, então isto é folga de
+            # milissegundos, não texto partido.
+            q["ini"] = max(p["ini"], s_ini) - s_ini + acumulado
+            q["fim"] = min(p["fim"], s_fim) - s_ini + acumulado
+            saida.append(q)
+        if dentro:
+            saida[-1]["corte_depois"] = True
+        mantidas += len(dentro)
+        acumulado += s_fim - s_ini
+    return saida, len(palavras) - mantidas
+
+
 def le_palavras(caminho: pathlib.Path) -> list[dict]:
     palavras = []
     linhas = caminho.read_text(encoding="utf-8").splitlines()
@@ -184,13 +246,45 @@ def monta_cues(palavras: list[dict]) -> list[dict]:
             fecha = True
         elif prox["fim"] - buf[0]["ini"] > MAX_DUR:
             fecha = True
+        elif p.get("corte_depois"):
+            fecha = True
 
         if fecha:
             cues.append({"ini": buf[0]["ini"], "fim": buf[-1]["fim"],
                          "txt": t,
+                         "fim_trecho": bool(p.get("corte_depois")),
                          "prob_min": min(x["prob"] for x in buf)})
             buf = []
     return cues
+
+
+def funde_orfaos(cues: list[dict]) -> list[dict]:
+    """Junta ao anterior o cue curto demais que fecha numa emenda.
+
+    Fora de uma emenda um cue curto tem para onde crescer: o ajusta_tempos
+    empurra o fim até MIN_DUR. No fim de um trecho não tem — o próximo cue
+    é outro momento do vídeo, e esticar poria o texto por cima do corte.
+    Sem isto o improviso_2 termina o segundo trecho com "música" sozinho
+    por 0,93s, abaixo do mínimo que este arquivo define para não piscar.
+
+    Só funde o que cabe: o teto de caracteres é regra de leitura e continua
+    valendo. O teto de duração cede, porque um cue longo é legível e um cue
+    que pisca não é.
+    """
+    saida = []
+    for c in cues:
+        anterior = saida[-1] if saida else None
+        orfao = (c["fim_trecho"] and c["fim"] - c["ini"] < MIN_DUR
+                 and anterior is not None and not anterior["fim_trecho"]
+                 and len(anterior["txt"]) + 1 + len(c["txt"]) <= MAX_CHARS_CUE)
+        if orfao:
+            anterior["txt"] += " " + c["txt"]
+            anterior["fim"] = c["fim"]
+            anterior["fim_trecho"] = True
+            anterior["prob_min"] = min(anterior["prob_min"], c["prob_min"])
+            continue
+        saida.append(c)
+    return saida
 
 
 def ajusta_tempos(cues: list[dict]) -> list[dict]:
@@ -198,6 +292,8 @@ def ajusta_tempos(cues: list[dict]) -> list[dict]:
     for i, c in enumerate(cues):
         limite = (cues[i + 1]["ini"] - GAP_MINIMO
                   if i + 1 < len(cues) else float("inf"))
+        if c["fim_trecho"]:
+            limite = min(limite, c["fim"])
         c["fim"] = min(c["fim"] + FOLGA_FIM, limite)
         if c["fim"] - c["ini"] < MIN_DUR:
             c["fim"] = min(c["ini"] + MIN_DUR, limite)
@@ -218,6 +314,8 @@ def estica_rapidos(cues: list[dict]) -> list[dict]:
     for i, c in enumerate(cues):
         limite = (cues[i + 1]["ini"] - GAP_MINIMO
                   if i + 1 < len(cues) else c["fim"] + MAX_DUR)
+        if c["fim_trecho"]:
+            limite = min(limite, c["fim"])
         dur = c["fim"] - c["ini"]
         if dur <= 0 or len(c["txt"]) / dur <= MAX_CPS:
             continue
@@ -307,6 +405,9 @@ ap.add_argument("--tamanho", type=int, default=54)
 ap.add_argument("--contorno", type=float, default=3.2)
 ap.add_argument("--sombra", type=float, default=1.0)
 ap.add_argument("--margem", type=int, default=90)
+ap.add_argument("--cortes", default=None,
+                help="cortes.txt do corta.sh; remapeia os tempos para o "
+                     "arquivo cortado e escreve out/<base>_final.*")
 ap.add_argument("--glossario",
                 default=str(pathlib.Path(__file__).parent / "glossario.tsv"),
                 help="tsv de correções; --glossario '' desliga")
@@ -339,7 +440,14 @@ if args.glossario:
     regras = le_glossario(pathlib.Path(args.glossario))
     palavras, trocas = aplica_glossario(palavras, regras)
 
-cues = estica_rapidos(ajusta_tempos(monta_cues(palavras)))
+fora_do_corte = 0
+if args.cortes:
+    trechos = le_cortes(pathlib.Path(args.cortes))
+    palavras, fora_do_corte = remapeia_cortes(palavras, trechos)
+    if not args.saida:
+        prefixo = prefixo.with_name(prefixo.name + "_final")
+
+cues = estica_rapidos(ajusta_tempos(funde_orfaos(monta_cues(palavras))))
 
 srt = prefixo.with_suffix(".srt")
 ass = prefixo.with_suffix(".ass")
@@ -357,6 +465,10 @@ cps = [len(c["txt"]) / (c["fim"] - c["ini"]) for c in cues]
 print(f"palavras:    {n_total}"
       + (f"  ({descartadas} fora das {len(regioes)} regiões FALA)"
          if args.segmentos else ""))
+if args.cortes:
+    print(f"cortes:      {len(trechos)} trecho(s), "
+          f"{sum(f - i for i, f in trechos):.2f}s mantidos"
+          f"  ({fora_do_corte} palavras fora do corte)")
 print(f"cues:        {len(cues)}")
 print(f"duração:     {min(duracoes):.2f}s a {max(duracoes):.2f}s"
       f"  (média {sum(duracoes)/len(duracoes):.2f}s)")

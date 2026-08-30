@@ -12,6 +12,7 @@
 # O reencode é feito uma vez só, no final, para não empilhar gerações.
 
 set -euo pipefail
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 IN="${1:?uso: $0 <video.mp4> <cortes.txt>}"
 LISTA="${2:?uso: $0 <video.mp4> <cortes.txt>}"
@@ -25,8 +26,6 @@ BASE=$(basename "$IN"); BASE="${BASE%.*}"
 # ao reaplicar um corte, e o ffmpeg sobrescreveria o próprio fonte.
 BASE="${BASE%_norm}"
 OUT="$HOME/video/out"
-TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
 
 # Converte HH:MM:SS.mmm (ou MM:SS.mmm, ou segundos) para segundos.
 #
@@ -42,30 +41,46 @@ to_sec() {
              else printf "%.3f", $1 }' <<< "$1"
 }
 
-# Monta um filtro único com todos os trechos: corta e concatena numa
-# só passagem do ffmpeg. Evita arquivos intermediários e reencodes
-# sucessivos.
-V=""; A=""; N=0
+# Uma ENTRADA por trecho, com -ss/-to, concatenadas numa só passagem.
+# Continua sem arquivos intermediários e sem reencodes sucessivos.
+#
+# O erro que isto corrige (30/08/2026): a versão anterior usava um único
+# -i e derivava um ramo [0:v]trim=start=..:end=.. por trecho. Reusar a
+# mesma entrada em vários ramos faz o ffmpeg inserir um split implícito,
+# e o split precisa entregar cada frame decodificado a TODOS os ramos ao
+# mesmo tempo — os que o concat ainda não está consumindo acumulam na
+# fila do filtro. Em 1080p60 yuv420p cada frame decodificado ocupa
+# 3,1 MB; alguns milhares enfileirados passaram de 12 GB numa máquina de
+# 15 GB, e o OOM killer levou a IDE junto três vezes. Nada a ver com o
+# tamanho do arquivo: o vídeo do teste tinha 5 minutos e 170 MB.
+#
+# Com um -i por trecho o ffmpeg busca direto no ponto e decodifica só o
+# necessário — não existe split, não existe fila. Medido no mesmo corte
+# do improviso_2: 12 GB e morte por OOM viraram 1,2 GB estáveis do começo
+# ao fim, e a duração da saída (186,95 s) confere com a soma dos trechos
+# (186,91 s; a diferença é arredondamento de frame).
+#
+# O -ss vem ANTES do -i de propósito: como opção de entrada ele busca no
+# índice em vez de decodificar e descartar desde o zero. A precisão não
+# se perde — com reencode o ffmpeg faz accurate seek por padrão, e o
+# ponto de corte continua caindo na fronteira de palavra que o
+# words.tsv apontou.
+INPUTS=(); ROTULOS=""; N=0
 while read -r ini fim; do
   [[ -z "${ini:-}" || "${ini:0:1}" == "#" ]] && continue
   S=$(to_sec "$ini"); E=$(to_sec "$fim")
-  V+="[0:v]trim=start=${S}:end=${E},setpts=PTS-STARTPTS[v${N}];"
-  A+="[0:a]atrim=start=${S}:end=${E},asetpts=PTS-STARTPTS[a${N}];"
+  INPUTS+=(-ss "$S" -to "$E" -i "$IN")
+  ROTULOS+="[${N}:v][${N}:a]"
   N=$((N+1))
 done < "$LISTA"
 
 [[ "$N" -gt 0 ]] || { echo "Nenhum trecho válido em $LISTA" >&2; exit 1; }
 
-CONCAT=""
-for ((i=0; i<N; i++)); do CONCAT+="[v${i}][a${i}]"; done
-CONCAT+="concat=n=${N}:v=1:a=1[outv][outa]"
-
-printf '%s\n%s\n' "$V$A$CONCAT" > "$TMP/filtro.txt"
 echo "==> Aplicando $N trecho(s)"
 
-ffmpeg -y -hide_banner -loglevel warning -stats \
-  -i "$IN" \
-  -filter_complex_script "$TMP/filtro.txt" \
+ffmpeg_lim -y -hide_banner -loglevel warning -stats \
+  "${INPUTS[@]}" \
+  -filter_complex "${ROTULOS}concat=n=${N}:v=1:a=1[outv][outa]" \
   -map "[outv]" -map "[outa]" \
   -c:v libx264 -crf 23 -preset fast -pix_fmt yuv420p \
   -c:a aac -b:a 192k -ar 48000 \

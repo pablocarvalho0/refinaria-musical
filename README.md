@@ -158,8 +158,18 @@ Formato do `work/cortes.txt`:
 ./scripts/corta.sh out/20260824_135542_norm.mp4 work/cortes.txt
 ```
 
-Monta um `filter_complex` único com `trim`/`atrim` + `concat`: todos os trechos numa só
-passagem do ffmpeg, sem arquivos intermediários e sem geração extra de perda.
+Monta uma entrada `-ss`/`-to` por trecho e junta tudo com `concat`: todos os trechos
+numa só passagem do ffmpeg, sem arquivos intermediários e sem geração extra de perda.
+
+Uma entrada por trecho, e não vários ramos `trim` de uma entrada só, é o que mantém o
+consumo de memória plano — 1,2 GB medidos, contra os 12 GB que derrubavam a IDE até
+30/08/2026. O porquê está no `CLAUDE.md`, em "O corte que derrubava a IDE".
+
+O encode roda num cgroup com teto de memória (`MemoryMax=6G`). Para ajustar:
+
+```bash
+MEM_MAX=10G ./scripts/corta.sh out/<nome>_norm.mp4 work/cortes.txt
+```
 
 Saída: `out/<nome>_final.mp4`.
 
@@ -207,15 +217,29 @@ propaga a exclusão para o celular.
 ├── CLAUDE.md          # contexto para o Claude Code
 ├── README.md
 ├── requirements.txt
-├── scripts/
-│   ├── processa.sh    # normalização + extração de áudio
-│   ├── transcreve.sh  # wrapper que configura LD_LIBRARY_PATH
-│   ├── transcreve.py  # faster-whisper
-│   └── corta.sh       # aplica cortes semânticos
+├── docs/              # registro das decisões de arquitetura
+├── scripts/           # em ordem de pipeline
+│   ├── processa.sh    # normaliza o vídeo e extrai o .wav da transcrição
+│   ├── transcreve.sh  # ponto de entrada da transcrição (configura LD_LIBRARY_PATH)
+│   ├── transcreve.py  # faster-whisper, grava .txt + sidecars .segments/.words.tsv
+│   ├── segmenta.py    # classifica FALA/MUSICA e mede a zona cinzenta
+│   ├── audio.sh       # tratamento de áudio por classe — produz o entregável
+│   ├── legenda.py     # reagrupa as palavras em cues .srt e .ass
+│   ├── glossario.tsv  # correções determinísticas de transcrição, lidas pelo legenda.py
+│   ├── corta.sh       # aplica os cortes semânticos
+│   ├── mede-audio.sh  # QA de loudness: total e separado por classe
+│   └── lib.sh         # ffmpeg com teto de memória, compartilhado
+├── importado/         # código de terceiros EM VALIDAÇÃO, fora do fluxo oficial
 ├── inbox/             # (ignorado) entrada — o vídeo do celular chega aqui
 ├── work/              # (ignorado) intermediários
-└── out/               # (ignorado) entregáveis
+├── out/               # (ignorado) entregáveis
+├── models/            # (ignorado) modelos Whisper baixados
+└── .venv/             # (ignorado)
 ```
+
+Entre o `legenda.py` e o `corta.sh` há um passo sem script: escolher os cortes. É o
+julgamento humano lendo a transcrição, e sai como `work/cortes.txt`. O combinado de
+quem faz o quê está no `CLAUDE.md`.
 
 ## Roadmap
 

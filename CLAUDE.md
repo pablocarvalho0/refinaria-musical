@@ -77,6 +77,7 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 │            # _audio.mp4 e _final.mp4 (entregaveis),
 │            # .txt, .segments.tsv, .segmentos.txt, .srt, .ass
 ├── scripts/    # versionado
+├── docs/       # registro das decisões de arquitetura. Versionado.
 ├── importado/  # codigo de terceiros EM VALIDACAO. Fora do fluxo oficial.
 ├── models/     # modelos Whisper baixados. Descartável (redownload).
 └── .venv/      # ignorado pelo git
@@ -437,6 +438,78 @@ som. A construção é que é estranha em português. Conferido com o autor:
 **ele falou assim mesmo**, e ficou como está. Fala espontânea não se
 corrige; legenda transcreve o que foi dito.
 
+## O corte que derrubava a IDE — 30/08/2026
+
+Em 30/08/2026 o `corta.sh` fechou a Antigravity três vezes: 10:57, 13:37 e
+13:42. O sintoma era a IDE simplesmente sumindo no meio do trabalho, sem
+diálogo de erro e sem log dela própria. Fica registrado porque o sintoma
+apontava para o lugar errado — a IDE não tinha culpa nenhuma.
+
+**A IDE morria porque o ffmpeg morria.** Tudo que a IDE abre, inclusive o
+terminal e os processos disparados nele, vive no mesmo scope do systemd
+(`app-org.chromium.Chromium-<pid>.scope`), e esse scope tem
+`OOMPolicy=stop`: basta UM processo lá dentro ser morto pelo OOM killer
+para o systemd derrubar o scope inteiro. Os três scopes com
+`Result=oom-kill` batem no segundo com os três `Out of memory: Killed
+process ... (ffmpeg)` do kernel — 11,3 GB, 12,1 GB e 12,5 GB de RSS numa
+máquina de 15 GB.
+
+**Rodar no terminal comum não resolveria.** O OOM era global
+(`constraint=CONSTRAINT_NONE`), não um limite de cgroup. O ffmpeg seria
+morto em qualquer lugar; só mudaria a vítima colateral, porque o scope do
+terminal do GNOME também tem `OOMPolicy=stop`. O corte continuaria
+falhando.
+
+**A causa era o formato do grafo de filtros, não o tamanho do arquivo.**
+A versão anterior do `corta.sh` usava um único `-i` e derivava um ramo
+`[0:v]trim=start=..:end=..` por trecho. Reusar a mesma entrada em vários
+ramos faz o ffmpeg inserir um `split` implícito, e o `split` precisa
+entregar cada frame decodificado a **todos** os ramos ao mesmo tempo — os
+que o `concat` ainda não está consumindo acumulam na fila do filtro. Em
+1080p60 yuv420p cada frame decodificado ocupa 3,1 MB, então alguns
+milhares enfileirados passam de 10 GB. O vídeo do episódio tinha 5
+minutos e 170 MB.
+
+**A correção é uma entrada por trecho.** Com `-ss`/`-to` antes de cada
+`-i` o ffmpeg busca direto no ponto e decodifica só o necessário: não há
+`split`, não há fila. O `-ss` como opção de entrada não custa precisão —
+com reencode o ffmpeg faz accurate seek por padrão, e o ponto de corte
+continua caindo na fronteira de palavra que o `words.tsv` apontou.
+
+Medido no mesmo corte do `improviso_2`, com o mesmo `cortes.txt` de 4
+trechos:
+
+| | antes (`trim` + `split`) | depois (`-ss`/`-to` por entrada) |
+|---|---|---|
+| pico de RSS | 12,5 GB | 1,20 GB, estável |
+| desfecho | OOM, IDE fechada | código 0 |
+| duração da saída | — (truncada em 8,1 MB) | 186,95 s |
+
+Os 186,95 s conferem com os 186,91 s da soma dos trechos; a diferença de
+40 ms é arredondamento de frame, o mesmo comportamento da versão antiga.
+
+**O ffmpeg pesado agora roda num cgroup próprio.** O `scripts/lib.sh`
+traz a função `ffmpeg_lim`, usada pelo `corta.sh`, pelo `processa.sh` e
+pelo render do `audio.sh`. Ela envolve o ffmpeg num `systemd-run --scope`
+com `MemoryMax=6G` e `MemorySwapMax=0`. Se estourar, morre só o encode,
+com mensagem legível, e quem chamou continua de pé:
+
+```bash
+MEM_MAX=10G ./scripts/corta.sh ...   # para dar mais folga
+SEM_LIMITE=1 ./scripts/corta.sh ...  # para desligar a proteção
+```
+
+O `MemorySwapMax=0` não é detalhe: sem ele a máquina passa minutos
+swapando, com o desktop travado, antes de alguém morrer. Com ele a falha
+é rápida e legível. Sem systemd de usuário (container, ssh sem sessão) a
+função cai no ffmpeg puro com um aviso — perde a rede, não impede o
+trabalho.
+
+**A lição que generaliza.** Um processo pesado disparado do terminal da
+IDE compartilha o destino da IDE. Quando algo "fecha sozinho" durante um
+trabalho pesado, o primeiro lugar a olhar é
+`journalctl --since today | grep -i oom`, não o log da aplicação.
+
 ## Import do browser-use/video-use — em validação
 
 Desde 30/08/2026 há uma importação parcial e sob teste do
@@ -535,3 +608,10 @@ O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
   master. Limpar `work/` após aprovar, arquivar masters após publicar.
 - **Fase 0 é publicar, não perfeição.** Se algo estiver bloqueando por mais de uma
   tentativa, usar o caminho lento e seguir (ex: CPU em vez de GPU).
+- **Se a IDE ou o terminal fechar sozinho durante um trabalho pesado, é OOM até prova
+  em contrário.** Olhar `journalctl --since today | grep -i oom` antes do log da
+  aplicação. Processo pesado disparado do terminal da IDE compartilha o cgroup — e o
+  destino — dela. Ver "O corte que derrubava a IDE".
+- **ffmpeg novo passa pelo `ffmpeg_lim` do `scripts/lib.sh`**, não pelo `ffmpeg` direto,
+  sempre que processar arquivo inteiro. E desconfiar de grafo que reusa a mesma entrada
+  em vários ramos: é o padrão que enfileira frames decodificados até estourar.
