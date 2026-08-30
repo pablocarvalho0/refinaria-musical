@@ -273,10 +273,20 @@ no mesmo episódio (`video_0`, 189,6s):
 | `_norm` (loudnorm) | `large-v3` | não | 3,2% | 5,00s |
 | áudio cru | `large-v3` | não | 7,2% | 5,77s |
 | **áudio cru** | **`large-v3`** | **sim** | **1,7%** | **1,99s** |
+| áudio cru + `--word-timestamps` | `large-v3` | sim | 2,1% | 2,19s |
 
 Duas lições. **Trocar de modelo não ajuda**: o `large-v3` piorou a fronteira em
 relação ao `small`. **O que ajuda é não normalizar antes de transcrever** — o
 `loudnorm` dinâmico empurrava o VAD a cortar a fala 3s cedo demais.
+
+A última linha é de 30/08/2026 e piora de propósito. Com `--word-timestamps`
+o Whisper aperta as fronteiras do segmento contra as palavras — a fala passa
+a começar em 1,790s em vez de 1,170s e a terminar em 37,410s em vez de
+37,610s. O trecho de música que sobra no começo é curto demais e cai na zona
+cinzenta, daí os 0,4 pontos a mais. Continua muito abaixo do critério de 10%,
+e as fronteiras novas são as corretas: são as que o alinhamento por palavra
+mediu. **O `segmentos.txt` de um episódio tem que ser gerado da mesma
+transcrição que gerou a legenda**, senão os dois discordam por ~200 ms.
 
 A "regra de desempate simples" que este documento previu virou código: fundir
 regiões de fala separadas por menos de 2s. Sem ela o áudio cru fica pior (7,2%),
