@@ -31,7 +31,7 @@ Opcionais, todos com caminho alternativo:
 sudo apt install ffmpeg mpv
 
 # Ambiente Python
-git clone <este-repo> ~/video && cd ~/video
+git clone https://github.com/pablocarvalho0/refinaria-musical.git ~/video && cd ~/video
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
