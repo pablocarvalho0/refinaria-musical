@@ -3,3 +3,5 @@ inbox/
 work/
 out/
 models/
+__pycache__/
+*.pyc

@@ -77,6 +77,7 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 │            # _audio.mp4 e _final.mp4 (entregaveis),
 │            # .txt, .segments.tsv, .segmentos.txt, .srt, .ass
 ├── scripts/    # versionado
+├── importado/  # codigo de terceiros EM VALIDACAO. Fora do fluxo oficial.
 ├── models/     # modelos Whisper baixados. Descartável (redownload).
 └── .venv/      # ignorado pelo git
 ```
@@ -255,6 +256,10 @@ resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o times
   auto-editor como parte do escopo; foi removido. Não seguir.
 - `docs/01-arquitetura-segmentacao.md` — arquitetura da Fase 1, com as medições
   dos passos 1 e 2.
+- `docs/02-import-video-use.md` — **import em andamento** do
+  `browser-use/video-use` (MIT). Decisão de 30/08/2026: importar peça por
+  peça, em `importado/`, com validação medida antes de qualquer coisa
+  migrar para `scripts/`. Ler antes de mexer em `importado/`.
 
 ## Segmentação fala/música (Fase 1 — passo 2 feito)
 
@@ -432,6 +437,31 @@ som. A construção é que é estranha em português. Conferido com o autor:
 **ele falou assim mesmo**, e ficou como está. Fala espontânea não se
 corrige; legenda transcreve o que foi dito.
 
+## Import do browser-use/video-use — em validação
+
+Desde 30/08/2026 há uma importação parcial e sob teste do
+[browser-use/video-use](https://github.com/browser-use/video-use) (MIT), que
+chegou à mesma tese central deste projeto por conta própria. **Nada de
+`importado/` faz parte do fluxo acima.** O registro completo — o que entrou,
+a fila, o que foi recusado e por quê — está em `docs/02-import-video-use.md`.
+
+Duas regras enquanto o import estiver aberto:
+
+- **`importado/` não é chamado por `scripts/`.** Um item só migra quando o
+  critério de validação dele estiver cumprido e medido no documento.
+- **O `SKILL.md` deles não é registrado como skill.** As 12 regras duras
+  dele conflitam com este arquivo (exige ASR da ElevenLabs, manda cortar em
+  silêncios ≥400 ms, impõe outra estrutura de diretórios). As ideias boas
+  entram como texto no documento, não como skill carregada em contexto.
+
+Primeiro item portado: `importado/video-use/timeline.py`, que condensa um
+intervalo do vídeo numa PNG (frames + forma de onda + palavras + classes).
+Ele já rendeu um achado: os **quatro** gaps de silêncio ≥0,4s da região de
+fala do `ep00` estão todos musicalmente ocupados (−5,9 a −15,8 dB relativos
+ao pico). A heurística de corte por silêncio do video-use teria gerado 4
+candidatos, todos errados — n=4, 100% de falso positivo. É a confirmação
+mais direta que temos da remoção do auto-editor.
+
 ## Pendências conhecidas
 
 - [x] ~~Áudio saindo a 96 kHz~~ — resolvido com `-ar 48000` na saída de áudio de
@@ -463,6 +493,17 @@ corrige; legenda transcreve o que foi dito.
 - [ ] Medir a segmentação em episódios com alternância fala/música real. Os dois
       episódios medidos até agora são o mesmo arquivo, com uma fronteira só.
       `inbox/improviso_2.mp4` (289s) ainda não foi processado.
+- [ ] **Import video-use, item 1** — validar o `timeline.py` num episódio com
+      pausa seca de verdade. O limiar de −25 dB da guarda de energia só foi
+      calibrado pelo lado da rejeição; nunca disparou positivo, porque no
+      `ep00` não existe silêncio real. Ver `docs/02-import-video-use.md`.
+- [ ] **Import video-use, item 2** — auto-avaliação do render: rodar o
+      `timeline.py` no arquivo cortado, em cada emenda, procurando salto
+      visual, pico de onda e legenda coberta.
+- [ ] **Import video-use, item 4** — medir a margem da legenda no vertical
+      dentro do app. Eles põem a legenda a ~31% da altura alegando que a UI
+      de Reels/Shorts cobre os 25–30% inferiores; a nossa está a 8,3%. É o
+      único item do import que afeta o que já está pronto para publicar.
 - [ ] Os parâmetros das cadeias do `audio.sh` (`afftdn=nr=10:nf=-30`,
       `acompressor` em −18 dB / 3:1) foram escolhidos por convenção, não medidos.
       A degradação da transcrição no áudio tratado sugere que o denoise está

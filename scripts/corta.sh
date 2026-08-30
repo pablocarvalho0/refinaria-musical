@@ -28,14 +28,18 @@ OUT="$HOME/video/out"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# Converte HH:MM:SS (ou MM:SS, ou segundos) para segundos
+# Converte HH:MM:SS.mmm (ou MM:SS.mmm, ou segundos) para segundos.
+#
+# Era aritmética inteira do bash ($((10#$s))), que só aceitava segundo
+# cheio e estourava em qualquer valor com casa decimal. Segundo cheio não
+# serve: o ponto de corte vem da transcrição, e a fronteira de palavra cai
+# em qualquer lugar — cortar em 61s em vez de 61,73s parte o "aí" no meio.
+# awk faz a conta em ponto flutuante e ainda dispensa o prefixo 10#, que
+# existia só para o bash não ler "08" como octal.
 to_sec() {
-  local t="$1"
-  case "$(grep -o ':' <<< "$t" | wc -l)" in
-    2) IFS=: read -r h m s <<< "$t"; echo "$((10#$h * 3600 + 10#$m * 60 + 10#$s))" ;;
-    1) IFS=: read -r m s <<< "$t";   echo "$((10#$m * 60 + 10#$s))" ;;
-    *) echo "$t" ;;
-  esac
+  awk -F: '{ if (NF==3) printf "%.3f", $1*3600+$2*60+$3;
+             else if (NF==2) printf "%.3f", $1*60+$2;
+             else printf "%.3f", $1 }' <<< "$1"
 }
 
 # Monta um filtro único com todos os trechos: corta e concatena numa
