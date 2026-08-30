@@ -72,9 +72,10 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 ```
 ~/video/
 ├── inbox/      # chega do celular via Syncthing (Receive Only). NÃO editar.
-├── work/       # intermediários e .wav. Descartável.
+├── work/       # intermediários, .wav e .words.tsv. Descartável.
 ├── out/        # _norm.mp4 (trabalho: video pronto, audio cru),
-│            # _audio.mp4 e _final.mp4 (entregaveis), .txt
+│            # _audio.mp4 e _final.mp4 (entregaveis),
+│            # .txt, .segments.tsv, .segmentos.txt, .srt, .ass
 ├── scripts/    # versionado
 ├── models/     # modelos Whisper baixados. Descartável (redownload).
 └── .venv/      # ignorado pelo git
@@ -82,6 +83,10 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 
 `inbox`, `work`, `out`, `models` e `.venv` estão no `.gitignore`.
 **Nunca versionar mídia nem pesos de modelo.**
+
+Os textos derivados da transcrição (`.txt`, `.segments.tsv`, `.segmentos.txt`,
+`.srt`, `.ass`) ficam em `out/`, não em `work/`: são a fonte da verdade do
+episódio, custam alguns KB, e `work/` existe para ser apagado sem pensar.
 
 ## Fluxo
 
@@ -97,7 +102,8 @@ cd ~/video && source .venv/bin/activate
 ./scripts/processa.sh ~/video/inbox/<arquivo>.mp4
 
 # 2. Transcreve (GPU). SEMPRE do .wav do _norm, nunca do áudio tratado.
-./scripts/transcreve.sh ~/video/work/<arquivo>.wav --model large-v3
+#    --word-timestamps grava o sidecar .words.tsv, insumo da legenda.
+./scripts/transcreve.sh ~/video/work/<arquivo>.wav --model large-v3 --word-timestamps
 
 # 3. Classifica fala/música e mede a zona cinzenta
 python scripts/segmenta.py ~/video/work/<arquivo>.wav   # -> work/segmentos.txt
@@ -106,14 +112,49 @@ python scripts/segmenta.py ~/video/work/<arquivo>.wav   # -> work/segmentos.txt
 ./scripts/audio.sh ~/video/out/<arquivo>_norm.mp4              # por classe
 ./scripts/audio.sh ~/video/out/<arquivo>_norm.mp4 --uniforme   # classe única
 
-# 5. Humano cola a transcrição no chat -> recebe cortes.txt
+# 5. Legenda: reagrupa as palavras em cues e aplica o glossário.
+#    Sai .srt (YouTube, sobe separado) e .ass (queima no vertical).
+python scripts/legenda.py ~/video/work/<arquivo>.words.tsv \
+    --segmentos ~/video/out/<arquivo>.segmentos.txt
 
-# 6. Aplica os cortes ao entregável
+# 6. Humano cola a transcrição no chat -> recebe cortes.txt e as
+#    correções de texto novas (que viram linhas do glossario.tsv)
+
+# 7. Aplica os cortes ao entregável
 ./scripts/corta.sh ~/video/out/<arquivo>_audio.mp4 ~/video/work/cortes.txt
+
+# Queimar a legenda (só no vertical; no YouTube o .srt sobe separado):
+ffmpeg -i <entrada>.mp4 -vf "ass=out/<arquivo>.ass" \
+    -c:v libx264 -crf 20 -preset fast -pix_fmt yuv420p -r 60 \
+    -c:a copy -metadata:s:a:0 language=por <saida>.mp4
 
 # Medir loudness de qualquer arquivo, separando fala de música:
 ./scripts/mede-audio.sh <arquivo> ~/video/work/segmentos.txt
 ```
+
+### Quem faz o quê — combinado em 30/08/2026
+
+O fluxo tem três atores e a fronteira entre eles é o que decide o custo:
+
+1. **Os scripts produzem o bruto.** Determinístico, roda sem supervisão,
+   não consome limite de uso: vídeo, áudio, transcrição, segmentação,
+   montagem dos cues e as correções que já estão no `glossario.tsv`.
+2. **O Claude passa por cima do bruto.** Só o que exige julgamento: ler a
+   transcrição procurando incoerência, escolher os cortes, escrever
+   título e descrição. As correções de texto que ele achar **voltam como
+   linhas do `glossario.tsv`**, não como um arquivo reescrito à mão.
+3. **O humano valida no fim.** Assiste e aprova, ou devolve o ajuste.
+
+Duas regras que sustentam isso:
+
+**O Claude nunca edita timestamp.** Ele devolve pares `errado → certo`; a
+reaplicação é do `legenda.py`, que recalcula os tempos. Timestamp que passa
+por LLM é timestamp que ninguém conferiu.
+
+**Erro visto duas vezes vira regra.** A primeira ocorrência custa uma
+leitura do Claude; da segunda em diante é o `glossario.tsv` que resolve, de
+graça e sempre igual. É o princípio 3 aplicado à revisão de texto: o
+julgamento acontece uma vez e depois virou código.
 
 Formato do `cortes.txt` — trechos a **MANTER**, um por linha:
 
@@ -330,6 +371,57 @@ Transcrever o áudio tratado deu resultado **ligeiramente pior** que transcrever
 Provável efeito do `afftdn` sobre as consoantes. **Consequência prática:
 transcrever sempre do `_norm`, nunca do `_audio`** — que é o que o fluxo já faz.
 
+## Legendas — medido em 30/08/2026
+
+`scripts/legenda.py` transforma o sidecar de palavras em `.srt` e `.ass`.
+
+**Por que não usar os segmentos do Whisper.** No `ep00` o primeiro segmento
+tem **29,00s e 427 caracteres** (14,7 char/s); o segundo, 6,44s e 65. Isso é
+parágrafo, não legenda. A norma de leitura é duas linhas de ~42 caracteres,
+1 a 6 segundos em tela. O dado que resolve já existia e estava sendo jogado
+fora: `--word-timestamps` era aceito pelo `transcreve.py`, mas `seg.words`
+não era gravado.
+
+Com as 88 palavras alinhadas, o resultado no `ep00`: **9 cues**, de 1,20 a
+4,90s (média 3,58), 5 a 78 caracteres (média 52), 4,2 a 17,0 char/s.
+
+**Regras de fecho de cue**, todas no topo do script para serem ajustadas
+depois de ver na tela: pontuação forte fecha sempre; vírgula fecha se o cue
+já tem 60% do teto; pausa entre palavras acima de 0,7s fecha; teto de 84
+caracteres ou 5s fecha. Depois o script dá 0,2s de folga, garante 1,2s
+mínimo e nunca invade o cue seguinte.
+
+**Cue rápido demais estica.** A abertura saía a 17,7 char/s. Como havia
+folga até o cue seguinte, usá-la não custa nada — o texto não muda, só fica
+mais tempo legível. Máximo do episódio caiu para 17,0 char/s.
+
+**A legenda passa pelo filtro de FALA.** As palavras são cruzadas com as
+regiões do `segmentos.txt`; o que cai fora é descartado. No `ep00` foram 0
+descartes, mas 152 dos 189 segundos são violão solo — é exatamente onde o
+Whisper alucina, e essa é a rede.
+
+**Destino diferente por plataforma.** No YouTube o `.srt` sobe separado:
+zero reencode, o espectador liga e desliga, e a plataforma indexa o texto.
+No vertical a legenda é queimada com o filtro `ass` — o corte vertical já
+reencoda, então não custa geração extra. Ambiente já tem tudo: ffmpeg com
+`libass`, `libfreetype`, `libfontconfig`, `libharfbuzz` e 1023 fontes.
+
+Estilo atual: Inter Bold 54px em `PlayResY=1080`, contorno preto 3,2,
+sombra 1,0, margem inferior 90. Validado na tela sobre fundo claro e escuro.
+
+**A probabilidade por palavra aponta onde olhar, não o que corrigir.**
+Média das 88 palavras: 0,864. Nas quatro do bordão errado: 0,577 (`do` em
+0,366). Mas das 11 palavras abaixo de 0,60, só 3 estavam no erro real —
+`tô`, `posso` e `isso` são fala rápida correta. Precisão de 27%, e `nada`
+escapou com 0,907. Serve para priorizar a leitura, não para decidir sozinha.
+Quem decide é a leitura do texto.
+
+**O que a leitura pega e a probabilidade não.** No `ep00` a frase "eu vou
+pretender editar" saiu com 0,938 de confiança — o modelo estava seguro do
+som. A construção é que é estranha em português. Conferido com o autor:
+**ele falou assim mesmo**, e ficou como está. Fala espontânea não se
+corrige; legenda transcreve o que foi dito.
+
 ## Pendências conhecidas
 
 - [x] ~~Áudio saindo a 96 kHz~~ — resolvido com `-ar 48000` na saída de áudio de
@@ -348,7 +440,13 @@ transcrever sempre do `_norm`, nunca do `_audio`** — que é o que o fluxo já 
       chamado direto sem as libs no caminho.
 - [x] ~~Marcar idioma do áudio~~ — `-metadata:s:a:0 language=por` está em
       `processa.sh`, `corta.sh` e `audio.sh`. Verificado no `ep00_audio.mp4`.
-- [ ] Glossário de correção de transcrição ainda não existe.
+- [x] ~~Glossário de correção de transcrição ainda não existe~~ — agora é
+      `scripts/glossario.tsv`, aplicado pelo `legenda.py` sobre a sequência
+      de palavras **antes** da montagem dos cues, para que a pontuação
+      corrigida influencie onde a legenda quebra. Casa por sequência
+      ignorando caixa e pontuação, preserva a pontuação final do original e
+      redistribui os timestamps dentro da mesma janela de tempo. Cada troca
+      é impressa na execução. Começou com 4 regras.
 - [x] ~~`processa.sh` aplicando `loudnorm` uniforme~~ — resolvido na v3: ele não
       toca mais no áudio, e o `audio.sh` virou o único produtor. Ver a decisão
       "processa.sh não trata áudio (v3)" acima.
@@ -360,7 +458,11 @@ transcrever sempre do `_norm`, nunca do `_audio`** — que é o que o fluxo já 
       A degradação da transcrição no áudio tratado sugere que o denoise está
       forte demais. Medir antes de confiar.
 
-## Glossário de transcrição (em construção)
+## Glossário de transcrição
+
+As regras aplicadas automaticamente vivem em **`scripts/glossario.tsv`**.
+Só entra ali o que foi ouvido e confirmado — palpite fica no relatório de
+trechos duvidosos, não no arquivo que roda sem supervisão.
 
 O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
 
@@ -368,7 +470,8 @@ O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
 - rearmonização, II-V-I, grau, campo harmônico, modo mixolídio
 - Erros já observados: `Falta da YouTube` (small) e `Falta nada do YouTube`
   (large-v3) → "Fala, galera do YouTube". **O large-v3 não corrige este erro** —
-  trocar de modelo não substitui o glossário.
+  trocar de modelo não substitui o glossário. Está no `glossario.tsv` desde
+  30/08/2026 e o `legenda.py` corrige sozinho.
 - `microfonezinhos` vira `microfones e nos olhos` quando o áudio passa pelo
   denoise do `audio.sh`.
 
@@ -377,7 +480,7 @@ O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
 - **Medir antes de otimizar.** Todas as decisões acima vieram de números, não de intuição.
   Sugestões novas devem vir com forma de medir.
 - **Não sugerir subir mídia** para nenhum serviço ou para o chat.
-- **Disco é o recurso apertado.** ~31 GB livres. Um episódio de 20 min em 4K60 dá ~7 GB de
+- **Disco é o recurso apertado.** ~25 GB livres em 30/08/2026. Um episódio de 20 min em 4K60 dá ~7 GB de
   master. Limpar `work/` após aprovar, arquivar masters após publicar.
 - **Fase 0 é publicar, não perfeição.** Se algo estiver bloqueando por mais de uma
   tentativa, usar o caminho lento e seguir (ex: CPU em vez de GPU).

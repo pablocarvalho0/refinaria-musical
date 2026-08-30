@@ -1,0 +1,14 @@
+# Correções determinísticas de transcrição. Uma por linha:
+#   errado <TAB> certo <TAB> nota
+#
+# O casamento é por sequência de palavras, ignorando caixa e pontuação,
+# e roda antes da montagem dos cues — a pontuação corrigida influencia
+# onde a legenda quebra. A pontuação final da última palavra original é
+# preservada quando a correção não traz a sua.
+#
+# Regra de entrada: só vai para cá o que foi ouvido e confirmado. Isto
+# não é lugar de palpite — palpite fica no relatório de trechos duvidosos.
+Falta nada do YouTube	Fala, galera do YouTube	bordão de abertura; large-v3 e small erram igual. Confirmado no ep00.
+Falta da YouTube	Fala, galera do YouTube	variante que o small produz para o mesmo trecho
+Falta galera do YouTube	Fala, galera do YouTube	variante parcial
+microfones e nos olhos	microfonezinhos, olha	surge ao transcrever o áudio com denoise do audio.sh

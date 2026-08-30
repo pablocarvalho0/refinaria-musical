@@ -10,6 +10,7 @@ import pathlib
 import sys
 import os
 import time
+from contextlib import ExitStack
 
 # O LD_LIBRARY_PATH das libs CUDA é responsabilidade do wrapper
 # scripts/transcreve.sh — o linker dinâmico lê a variável no boot do
@@ -87,6 +88,13 @@ out.parent.mkdir(parents=True, exist_ok=True)
 tsv = pathlib.Path.home() / "video" / "work" / f"{wav.stem}.segments.tsv"
 tsv.parent.mkdir(parents=True, exist_ok=True)
 
+# Sidecar de palavras: um registro por palavra, com início, fim e a
+# probabilidade que o modelo deu a ela. É o insumo da legenda — os
+# segmentos do Whisper chegam a 29s e 427 caracteres no ep00, o que não
+# cabe em tela nem de longe. Só é escrito com --word-timestamps, porque
+# sem a flag o faster-whisper deixa seg.words vazio.
+words_tsv = pathlib.Path.home() / "video" / "work" / f"{wav.stem}.words.tsv"
+
 # Baixa/carrega o modelo primeiro — falha aqui é de rede, não de device
 t0 = time.monotonic()
 try:
@@ -123,18 +131,33 @@ def hms(seconds: float) -> str:
 # O generator é preguiçoso: a inferência só acontece aqui dentro, então o
 # cronômetro tem que envolver o laço, não a chamada de transcribe().
 t1 = time.monotonic()
-with out.open("w", encoding="utf-8") as f, tsv.open("w", encoding="utf-8") as g:
+n_words = 0
+with ExitStack() as stack:
+    f = stack.enter_context(out.open("w", encoding="utf-8"))
+    g = stack.enter_context(tsv.open("w", encoding="utf-8"))
     g.write("start\tend\ttext\n")
+    w = None
+    if args.word_timestamps:
+        w = stack.enter_context(words_tsv.open("w", encoding="utf-8"))
+        w.write("start\tend\tword\tprob\n")
     for seg in segments:
         texto = seg.text.strip()
         line = f"[{hms(seg.start)}] {texto}"
         f.write(line + "\n")
         g.write(f"{seg.start:.3f}\t{seg.end:.3f}\t{texto}\n")
+        if w is not None:
+            # seg.words pode vir None num segmento sem alinhamento
+            for word in (seg.words or []):
+                w.write(f"{word.start:.3f}\t{word.end:.3f}\t"
+                        f"{word.word.strip()}\t{word.probability:.3f}\n")
+                n_words += 1
         print(line)
 t_infer = time.monotonic() - t1
 
 print(f"\nTranscrição: {out}")
 print(f"Segmentos:   {tsv}")
+if args.word_timestamps:
+    print(f"Palavras:    {words_tsv}  ({n_words} palavras)")
 print(f"\nmodelo={args.model}  compute_type={compute}  device={device.split()[0]}")
 print(f"carga    {t_load:7.1f}s")
 print(f"inferência {t_infer:5.1f}s  para {info.duration:.1f}s de áudio  "
