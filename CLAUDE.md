@@ -455,6 +455,99 @@ som. A construção é que é estranha em português. Conferido com o autor:
 **ele falou assim mesmo**, e ficou como está. Fala espontânea não se
 corrige; legenda transcreve o que foi dito.
 
+## Ritmo da legenda por formato — medido em 05/09/2026
+
+O `improviso_3` (vertical, Reel) mostrou que a legenda do longo e a do corte
+vertical não querem o mesmo ritmo. O horizontal segue a norma de leitura; o
+vertical passou a ter o seu, declarado em `marca/tokens.toml`:
+
+```toml
+[formato.9x16]
+chars_por_cue = 40
+dur_minima = 0.70
+```
+
+O `16x9` não declara nenhum dos dois e fica com a norma do topo do
+`legenda.py` (84 caracteres, 1,20s). **O `ep00` em 16x9 sai byte a byte igual
+ao de 30/08** — a mudança inteira é inerte onde não há defeito.
+
+**char/s NÃO é o critério no vertical, e a medição diz por quê.** Encurtar o
+cue *piora* a métrica, porque a duração encolhe junto com o texto:
+
+| teto | cues | duração média | char/s máx |
+|---|---|---|---|
+| 84 (norma) | 5 | 3,74s | 24,5 |
+| 28 | 12 | 1,55s | 32,9 |
+| 20 | 14 | 1,28s | 33,3 |
+
+Os 17 char/s da norma pressupõem duas linhas lidas em sacadas; num cue de três
+palavras o olho pega tudo num golpe. O critério que vale ali é o piso de
+duração — que o cue não pisque —, e quem o guarda é `dur_minima`. O relatório
+do `legenda.py` troca de número sozinho conforme o ritmo, para o alerta não
+virar ruído: com ritmo próprio ele imprime `piso:` e aponta quem pisca; na
+norma segue apontando `rápido demais`.
+
+### O gap entre cues estava saindo da palavra
+
+`ajusta_tempos` calculava o fim assim:
+
+```python
+limite = próximo_início - GAP_MINIMO
+fim = min(fim_da_última_palavra + FOLGA_FIM, limite)
+```
+
+Com as palavras coladas, esse `min()` puxava o fim para **antes** da última
+palavra terminar: ela sumia da tela enquanto ainda estava sendo dita. O
+respiro de 0,08s entre cues estava sendo cobrado da fala.
+
+Agora o gap sai só do espaço que sobra; sem espaço, ele cede e a palavra fica
+inteira. Medido no `improviso_3` com cue de 28 caracteres: **7 dos 12 cues
+perdiam 80 ms** — o valor exato do `GAP_MINIMO`. Depois: 0 de 12.
+
+Com cue longo o defeito quase não aparecia (1 de 5 no `ep00`), e é por isso
+que sobreviveu até aqui: **o número de fronteiras é que expõe o erro, não o
+tamanho do arquivo.** Quem viu primeiro foi o autor, na tela, antes de haver
+número — a medição veio confirmar, não descobrir.
+
+### Cue não termina em palavra funcional
+
+Encurtar o cue trouxe outro defeito, e este também apareceu na tela primeiro:
+a frase não se completava numa visada. O script fechava o cue onde os
+caracteres acabavam, sem noção de sintagma, e **aumentar o teto só mudava o
+lugar da emenda ruim**:
+
+```
+28:  "vou fazer uma inveja para" / "vocês..."
+34:  "vou fazer uma"             / "inveja para vocês..."
+40:  "vou fazer uma inveja"      / "para vocês..."
+```
+
+`ajusta_fronteiras` empurra para o cue seguinte a preposição, artigo ou
+conjunção que ficou no fim. Só age onde o cue fechou por falta de espaço:
+fecho por pontuação ou por pausa já cai em fronteira boa, e mexer ali seria
+desfazer o que o texto mandou.
+
+**Verbo ficou de fora de propósito.** "vou", "quero", "fazer" também pedem
+complemento, mas adivinhar quando recuaria o cue até esvaziá-lo. O custo é
+visível e aceito: no `improviso_3` sobrou um corte em `"não quero fazer" /
+"corte não"`. Lista fechada de classe gramatical é regra; lista de verbos
+seria palpite.
+
+Com teto 40 e a regra, o episódio fecha em 8 cues de 2,33s, sete deles em
+sentido completo. Acima disso o ganho some: 46 volta a cortar no meio
+("tomara que dê / certo") e o cue começa a estacionar de novo.
+
+### O `.srt` não segue o formato
+
+`.srt` e `.ass` saíam dos mesmos cues, e o `.srt` não tem formato. Com ritmo
+por formato, rodar o vertical **reescreveria em silêncio** a legenda do longo
+com cues de três palavras.
+
+O `.srt` passa a sair sempre da norma de leitura; só o `.ass` pega o ritmo do
+formato. É o que preserva o que a decisão de 30/08 protegia — o corte vertical
+tirado do longo continua barato, porque o texto e os tempos que o YouTube
+recebe não dependem de qual formato foi gerado por último.
+
 ## O corte que derrubava a IDE — 30/08/2026
 
 Em 30/08/2026 o `corta.sh` fechou a Antigravity três vezes: 10:57, 13:37 e
@@ -577,6 +670,13 @@ A correção separou dois números que estavam confundidos num só:
   podem divergir entre o longo e o corte vertical tirado dele — é isso que
   torna o corte barato;
 - **onde a linha quebra é apresentação** e foi para os tokens.
+
+  > **Revisto em 05/09/2026, e a separação sobreviveu — mudou onde ela passa.**
+  > O ritmo do cue virou token de formato (`chars_por_cue`, `dur_minima`): o
+  > vertical fecha em 40 caracteres, o horizontal segue nos 84. O que protegia
+  > o corte barato não era os dois formatos terem os mesmos cues — era o
+  > **`.srt`** não depender de formato nenhum, e ele agora sai sempre da norma.
+  > Ver "Ritmo da legenda por formato".
 
 Verificado depois: o `.ass` de 16:9 saiu byte a byte igual ao de antes da
 mudança, e os cues dos dois formatos são idênticos por diff.
@@ -916,9 +1016,13 @@ mudo depois da linha do áudio, sem erro visível. Fechar com `|| true`.
       é uma linha no `tokens.toml`. **Reabrir só se uma legenda aparecer coberta
       pela interface** — aí `./scripts/gabarito-safe-area.sh` mede em cinco
       minutos. Não é lacuna, é valor emprestado com fonte declarada.
-- [ ] Validar o `9x16` sobre um corte vertical de verdade. O que foi medido
-      até agora usa crop central do 16:9, que serve para contraste mas não é o
-      enquadramento que vai ao ar.
+- [x] ~~Validar o `9x16` sobre um corte vertical de verdade~~ — feito em
+      05/09/2026 no `improviso_3`, gravado vertical no celular (não é crop
+      do 16:9). A legenda ficou dentro do quadro e legível; o contraste sem
+      contorno é **pior** que o do crop central medido antes — 32,4% dos
+      pixels abaixo de 4,5:1 contra 12,0% do `ep00` —, porque a gravação é
+      externa, com céu aberto e sol. Com contorno o pior caso é 11,5:1. O
+      contorno é o que sustenta a legenda em locação, não a cor da letra.
 - [ ] **Migrar o `capa_arte.py` para os tokens.** Ele nasceu como solução
       pontual para destravar as primeiras publicações e tem tipografia e cores
       escritas dentro do código. **O sistema canônico daqui em diante é
@@ -953,6 +1057,12 @@ O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
   30/08/2026 e o `legenda.py` corrige sozinho.
 - `microfonezinhos` vira `microfones e nos olhos` quando o áudio passa pelo
   denoise do `audio.sh`.
+- No `improviso_3` (05/09/2026) três trechos precisaram do autor para serem
+  resolvidos, e a probabilidade só acertou o endereço de um deles: `ideia`
+  (p=0,250) e o `a` de `a gaiota` (p=0,185) estavam mesmo errados, mas
+  `improvisa` fechou o episódio com p=0,447 sem que o número apontasse a
+  conjugação. Quem decidiu foi ouvir. Média do episódio: 0,787 contra 0,864
+  do `ep00` — gravação externa, com vento e rua, transcreve pior.
 
 ## Ao trabalhar neste projeto
 

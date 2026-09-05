@@ -144,6 +144,30 @@ margem_lateral = 60
 margem_inferior = 480
 chars_por_linha = 29
 linhas_max = 3
+chars_por_cue = 40
+dur_minima = 0.70
+# O ritmo do cue é do formato, não da norma única — decidido em 05/09/2026,
+# depois de ver as quatro variantes na tela.
+#
+# O 16x9 não declara estes dois e fica com a norma de leitura do legenda.py
+# (84 caracteres, 1,20s). Aqui o cue tem ~3 palavras e troca a cada 1,5s.
+# O motivo é de mídia, não de gosto: o Reel é assistido sem som e em rolagem,
+# a legenda É o áudio, e a troca frequente segura o olho. No YouTube longo o
+# .srt é opcional e quem ligou quer ler — lá duas linhas ganham.
+#
+# char/s NÃO é o critério aqui, e a medição diz por quê: encurtar o cue PIORA
+# a métrica (24,5 -> 32,9 no improviso_3), porque a duração encolhe junto com
+# o texto. Os 17 char/s da norma pressupõem duas linhas lidas em sacadas; num
+# cue de três palavras o olho pega tudo num golpe. O critério que vale é o
+# piso de duração — que o cue não pisque —, e é o dur_minima que o guarda.
+#
+# 0,70s e não 0,60: a variante de 20 caracteres chegava a 0,56s de cue.
+#
+# 40 e não 28, ajustado em 05/09/2026 depois de ver na tela. 28 sincronizava
+# bem com a fala mas partia a frase: o olho lia "vou fazer uma inveja" e só
+# achava o resto no cue seguinte. Com 40 são 8 cues de 2,33s, e 7 deles
+# fecham em sentido completo. Acima disso o ganho some — 46 volta a cortar
+# no meio ("tomara que dê / certo") e o cue começa a estacionar de novo.
 # Dimensionado por cálculo com a métrica acima, não por proporção do 16:9.
 #
 # O critério é caracteres por linha, não porcentagem da tela: linha curta lê
@@ -170,3 +194,69 @@ linhas_max = 3
 #
 # Ou seja: não é uma lacuna esquecida, é um valor emprestado com a fonte
 # declarada e o teste engatilhado.
+
+
+# ---------------------------------------------------------------------------
+# Cartelas de vídeo — abertura e créditos
+#
+# Consumidor: scripts/cartelas.py, que desenha PNG com alfa e entrega ao
+# overlay do ffmpeg. Não usa drawtext: a Charter é Type1, o drawtext lida mal
+# com ela, e o parser do filtergraph ainda come '%' solto sem avisar.
+#
+# Geometria: a cartela NÃO tem margens próprias. Ela reusa
+# `formato.<fmt>.margem_lateral` e `formato.<fmt>.margem_inferior`, que são a
+# safe area já decidida para o formato. Duplicar esses números aqui criaria
+# duas verdades sobre onde a interface do Reels/Shorts cobre a tela — e a que
+# ficasse desatualizada falharia em silêncio, que é o modo de falha que este
+# projeto mais persegue.
+#
+# Cor: sobre imagem, TODO texto é creme. O acento vive só na barra, no chip e
+# no fio — elemento gráfico, nunca letra solta sobre a foto. É a regra medida
+# em docs/04-identidade.md, e a cartela não abre exceção.
+# ---------------------------------------------------------------------------
+
+[cartela]
+barra_largura = 12       # a mesma barra do lockup, do monograma e da thumbnail
+barra_gap = 32           # respiro entre a barra e o texto, igual à thumbnail
+contorno = 2             # docs/04: 2px foi o que devolveu massa ao traço fino
+                         # da Charter sobre foto. Halo sozinho não resolveu.
+entrelinha = 1.14        # múltiplo do tamanho da fonte
+
+# O scrim é o que carrega o contraste, não a cor da letra.
+#
+# Medido neste episódio (1080x1920, externa com céu, 05/09/2026), o vídeo cru
+# não tem UMA faixa horizontal onde branco puro alcance 4,5:1: a mediana das
+# bandas vai de L=0,046 a L=0,571, e o p95 — o pixel claro que decide — fica
+# entre 0,33 e 0,84, o que dá de 1,2:1 a 2,7:1 em todo lugar. Não existe
+# "colocar em cima do escuro"; existe escurecer.
+#
+# `forca` é o alfa do plano cheio, sobre paleta.fundo. `rampa` é a altura em
+# px do degradê acima do bloco, para não haver borda dura. Abaixo do bloco o
+# scrim segue cheio até a base do quadro: aquela faixa é justamente a que a
+# interface da plataforma cobre.
+scrim_forca = 0.72
+scrim_rampa = 260
+scrim_folga = 44         # px de plano cheio acima da primeira linha
+
+# Tempos de aparecimento. Duração em segundos.
+fade_entrada = 0.80
+fade_saida = 0.80
+fade_video_saida = 1.50  # o fade-out de imagem no fim do vídeo
+
+[cartela.abertura]
+duracao = 6.40           # tempo total em tela, contando os dois fades
+atraso = 0.60            # quando começa a entrar
+tamanho_titulo = 72
+tamanho_credito = 34
+tamanho_chip = 26
+chip_tracking = 3        # px extra entre caracteres da caixa alta
+
+[cartela.creditos]
+duracao = 8.20           # entra faltando este tanto para o fim
+tamanho_titulo = 58
+tamanho_credito = 34
+tamanho_etiqueta = 24
+tamanho_nome = 66
+tamanho_handle = 28
+etiqueta_tracking = 3
+fio_largura = 2          # o fio fino que separa a obra de quem a executou

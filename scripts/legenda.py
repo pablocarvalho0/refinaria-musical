@@ -230,7 +230,8 @@ def le_palavras(caminho: pathlib.Path) -> list[dict]:
     return palavras
 
 
-def monta_cues(palavras: list[dict]) -> list[dict]:
+def monta_cues(palavras: list[dict],
+               max_chars_cue: int = MAX_CHARS_CUE) -> list[dict]:
     """Agrupa palavras em cues. Fecha em pontuação, pausa ou teto."""
     cues, buf = [], []
 
@@ -243,31 +244,82 @@ def monta_cues(palavras: list[dict]) -> list[dict]:
         prox = palavras[i + 1] if i + 1 < len(palavras) else None
 
         fecha = False
+        motivo = None
         if prox is None:
-            fecha = True
+            fecha = True; motivo = "fim"
         elif t and t[-1] in FORTE:
-            fecha = True
-        elif t and t[-1] in FRACA and len(t) >= MAX_CHARS_CUE * CHEIO:
-            fecha = True
+            fecha = True; motivo = "ponto"
+        elif t and t[-1] in FRACA and len(t) >= max_chars_cue * CHEIO:
+            fecha = True; motivo = "virgula"
         elif prox["ini"] - p["fim"] > GAP_QUEBRA:
-            fecha = True
-        elif len(t) + 1 + len(prox["txt"]) > MAX_CHARS_CUE:
-            fecha = True
+            fecha = True; motivo = "pausa"
+        elif len(t) + 1 + len(prox["txt"]) > max_chars_cue:
+            fecha = True; motivo = "TETO"
         elif prox["fim"] - buf[0]["ini"] > MAX_DUR:
-            fecha = True
+            fecha = True; motivo = "durmax"
         elif p.get("corte_depois"):
             fecha = True
 
         if fecha:
             cues.append({"ini": buf[0]["ini"], "fim": buf[-1]["fim"],
-                         "txt": t,
+                         "txt": t, "palavras": buf, "motivo": motivo,
                          "fim_trecho": bool(p.get("corte_depois")),
                          "prob_min": min(x["prob"] for x in buf)})
             buf = []
     return cues
 
 
-def funde_orfaos(cues: list[dict]) -> list[dict]:
+# Palavras que não sustentam o fim de um cue: elas pedem o que vem depois.
+# Terminar ali parte o sintagma no meio e o espectador lê "vou fazer uma" e
+# só descobre "inveja" no cue seguinte — foi a queixa que originou a regra.
+# Só preposição, artigo e conjunção: são fechadas e não dependem de análise.
+# Verbo auxiliar ("vou", "quero") tentaria adivinhar demais e recuaria o cue
+# a ponto de esvaziá-lo.
+FUNCIONAIS = {
+    "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+    "ao", "aos", "à", "às", "para", "pra", "pro", "por", "pelo", "pela",
+    "pelos", "pelas", "com", "sem", "sob", "sobre", "entre", "até",
+    "desde", "após", "contra", "num", "numa", "dum", "duma",
+    "o", "a", "os", "as", "um", "uma", "uns", "umas",
+    "e", "ou", "mas", "que", "se", "como", "quando", "porque", "pois",
+    "nem", "então", "qual", "quais", "cujo", "cuja", "meu", "minha",
+    "seu", "sua", "nosso", "nossa", "este", "esta", "esse", "essa",
+}
+
+
+def nu(txt: str) -> str:
+    """A palavra sem pontuação nem caixa, para consultar FUNCIONAIS."""
+    return txt.strip(".,;:!?…\"'()").lower()
+
+
+def ajusta_fronteiras(cues: list[dict], max_chars_cue: int) -> list[dict]:
+    """Empurra para o cue seguinte a palavra funcional que ficou no fim.
+
+    Só age onde o cue fechou por falta de espaço ('TETO' ou duração): fecho
+    por pontuação ou por pausa já cai em fronteira boa, e mexer ali seria
+    desfazer o que o texto mandou. A palavra só anda se couber do outro lado
+    e se sobrar coisa deste — um cue não pode ficar vazio para embelezar o
+    vizinho.
+    """
+    for i in range(len(cues) - 1):
+        c, prox = cues[i], cues[i + 1]
+        if c.get("motivo") not in ("TETO", "durmax"):
+            continue
+        while len(c["palavras"]) >= 2 and nu(c["palavras"][-1]["txt"]) in FUNCIONAIS:
+            movida = c["palavras"][-1]
+            if len(movida["txt"]) + 1 + len(prox["txt"]) > max_chars_cue:
+                break
+            c["palavras"].pop()
+            prox["palavras"].insert(0, movida)
+            for x in (c, prox):
+                x["txt"] = " ".join(w["txt"] for w in x["palavras"])
+                x["ini"] = x["palavras"][0]["ini"]
+                x["fim"] = x["palavras"][-1]["fim"]
+    return cues
+
+
+def funde_orfaos(cues: list[dict], max_chars_cue: int = MAX_CHARS_CUE,
+                 min_dur: float = MIN_DUR) -> list[dict]:
     """Junta ao anterior o cue curto demais que fecha numa emenda.
 
     Fora de uma emenda um cue curto tem para onde crescer: o ajusta_tempos
@@ -283,9 +335,9 @@ def funde_orfaos(cues: list[dict]) -> list[dict]:
     saida = []
     for c in cues:
         anterior = saida[-1] if saida else None
-        orfao = (c["fim_trecho"] and c["fim"] - c["ini"] < MIN_DUR
+        orfao = (c["fim_trecho"] and c["fim"] - c["ini"] < min_dur
                  and anterior is not None and not anterior["fim_trecho"]
-                 and len(anterior["txt"]) + 1 + len(c["txt"]) <= MAX_CHARS_CUE)
+                 and len(anterior["txt"]) + 1 + len(c["txt"]) <= max_chars_cue)
         if orfao:
             anterior["txt"] += " " + c["txt"]
             anterior["fim"] = c["fim"]
@@ -296,18 +348,30 @@ def funde_orfaos(cues: list[dict]) -> list[dict]:
     return saida
 
 
-def ajusta_tempos(cues: list[dict]) -> list[dict]:
-    """Dá folga no fim e garante MIN_DUR, sem invadir o cue seguinte."""
+def ajusta_tempos(cues: list[dict], min_dur: float = MIN_DUR) -> list[dict]:
+    """Dá folga no fim e garante min_dur, sem invadir o cue seguinte.
+
+    O GAP_MINIMO sai do espaço que sobra entre um cue e o outro — nunca da
+    palavra. Antes o limite era 'próximo início menos o gap' e entrava num
+    min() com o fim da fala: quando as palavras vinham coladas, o cue era
+    aparado para ANTES da última palavra terminar, e ela sumia da tela
+    enquanto ainda estava sendo dita. O sintoma foi visto na tela antes de
+    ser medido; medido depois no improviso_3 com cue curto, 7 dos 12 cues
+    perdiam 80 ms — o valor exato do GAP_MINIMO. Com cue longo o defeito
+    quase não aparece (1 de 5), porque há menos fronteiras para errar.
+    """
     for i, c in enumerate(cues):
-        limite = (cues[i + 1]["ini"] - GAP_MINIMO
-                  if i + 1 < len(cues) else float("inf"))
+        fim_palavra = c["fim"]
+        prox = (cues[i + 1]["ini"] if i + 1 < len(cues) else float("inf"))
+        # piso: a palavra inteira, salvo quando o próximo cue já começou
+        # (o alinhamento do Whisper encavala palavras de vez em quando).
+        piso = min(fim_palavra, prox)
+        limite = max(prox - GAP_MINIMO, piso)
         if c["fim_trecho"]:
-            limite = min(limite, c["fim"])
-        c["fim"] = min(c["fim"] + FOLGA_FIM, limite)
-        if c["fim"] - c["ini"] < MIN_DUR:
-            c["fim"] = min(c["ini"] + MIN_DUR, limite)
-        # limite pode ser menor que o início quando duas palavras se
-        # encavalam no alinhamento; nesse caso o cue fica com o que tem.
+            limite = min(limite, fim_palavra)
+        c["fim"] = min(fim_palavra + FOLGA_FIM, limite)
+        if c["fim"] - c["ini"] < min_dur:
+            c["fim"] = max(c["fim"], min(c["ini"] + min_dur, limite))
         if c["fim"] <= c["ini"]:
             c["fim"] = c["ini"] + 0.30
     return cues
@@ -463,6 +527,10 @@ def estilo_do_formato(tokens: dict, formato: str) -> dict:
         "cor_contorno": cor["contorno"], "cor_fundo": cor["fundo"],
         "chars_por_linha": fm["chars_por_linha"],
         "linhas_max": fm["linhas_max"],
+        # Ritmo do cue. Ausentes, valem a norma de leitura do topo deste
+        # arquivo — que é o que o 16x9 usa. O vertical declara os seus.
+        "chars_por_cue": fm.get("chars_por_cue", MAX_CHARS_CUE),
+        "dur_minima": fm.get("dur_minima", MIN_DUR),
     }
 
 
@@ -535,28 +603,43 @@ if args.cortes:
     if not args.saida:
         prefixo = prefixo.with_name(prefixo.name + "_final")
 
-cues = estica_rapidos(ajusta_tempos(funde_orfaos(monta_cues(palavras))))
+def monta(max_chars_cue: int, min_dur: float):
+    return estica_rapidos(
+        ajusta_tempos(
+            funde_orfaos(
+                ajusta_fronteiras(monta_cues(palavras, max_chars_cue),
+                                  max_chars_cue),
+                max_chars_cue, min_dur),
+            min_dur))
 
-# O .srt não tem formato: é texto e tempo, sobe para o YouTube do jeito que
-# está. O .ass carrega a apresentação, então cada formato tem o seu — sem o
-# sufixo, gerar o vertical apagaria silenciosamente o horizontal.
-srt = prefixo.with_suffix(".srt")
-ass = prefixo.with_suffix(f".{args.formato}.ass")
-escreve_srt(cues, srt)
+
 estilo = estilo_do_formato(le_tokens(pathlib.Path(args.tokens)), args.formato)
 for chave, valor in (("fonte", args.fonte), ("tamanho", args.tamanho),
                      ("contorno", args.contorno), ("sombra", args.sombra),
                      ("margem", args.margem)):
     if valor is not None:
         estilo[chave] = valor
-escreve_ass(cues, ass, estilo)
+
+# O .srt sai SEMPRE da norma de leitura, nunca do ritmo do formato. Ele não
+# tem formato: é um arquivo só, sobe separado no YouTube e o espectador liga
+# e desliga. Se seguisse o formato, gerar o vertical reescreveria em silêncio
+# a legenda do longo com cues de três palavras. O .ass é que carrega a
+# apresentação — e agora também o ritmo.
+cues = monta(MAX_CHARS_CUE, MIN_DUR)
+ritmo = (estilo["chars_por_cue"], estilo["dur_minima"])
+cues_ass = cues if ritmo == (MAX_CHARS_CUE, MIN_DUR) else monta(*ritmo)
+
+srt = prefixo.with_suffix(".srt")
+ass = prefixo.with_suffix(f".{args.formato}.ass")
+escreve_srt(cues, srt)
+escreve_ass(cues_ass, ass, estilo)
 
 descartadas = n_total - n_apos_filtro
 for t in trocas:
     print(f"glossário [{ts_srt(t['ini'])}] {t['de']!r} -> {t['para']!r}")
-duracoes = [c["fim"] - c["ini"] for c in cues]
-chars = [len(c["txt"]) for c in cues]
-cps = [len(c["txt"]) / (c["fim"] - c["ini"]) for c in cues]
+duracoes = [c["fim"] - c["ini"] for c in cues_ass]
+chars = [len(c["txt"]) for c in cues_ass]
+cps = [len(c["txt"]) / (c["fim"] - c["ini"]) for c in cues_ass]
 
 print(f"palavras:    {n_total}"
       + (f"  ({descartadas} fora das {len(regioes)} regiões FALA)"
@@ -565,17 +648,39 @@ if args.cortes:
     print(f"cortes:      {len(trechos)} trecho(s), "
           f"{sum(f - i for i, f in trechos):.2f}s mantidos"
           f"  ({fora_do_corte} palavras fora do corte)")
-print(f"cues:        {len(cues)}")
+print(f"cues:        {len(cues_ass)}"
+      + (f"  no .ass, {len(cues)} no .srt (norma de leitura)"
+         if cues_ass is not cues else ""))
 print(f"duração:     {min(duracoes):.2f}s a {max(duracoes):.2f}s"
       f"  (média {sum(duracoes)/len(duracoes):.2f}s)")
 print(f"caracteres:  {min(chars)} a {max(chars)}"
       f"  (média {sum(chars)/len(chars):.0f})")
+# Qual número vigiar depende do ritmo, e usar o errado dá alarme falso.
+# Com cue longo o gargalo é a leitura: duas linhas lidas em sacadas, teto
+# de MAX_CPS. Com cue curto o char/s SOBE por construção — o texto encolhe
+# e a duração encolhe junto — e não quer dizer nada, porque três palavras
+# se leem num golpe. Lá o que machuca é o cue piscar, e o piso é dur_minima.
+ritmo_proprio = cues_ass is not cues
+piso = estilo["dur_minima"]
 print(f"leitura:     {min(cps):.1f} a {max(cps):.1f} char/s"
-      f"  (confortável até ~17)")
-acima = [c for c, v in zip(cues, cps) if v > 17]
-for c in acima:
-    print(f"  rápido demais: [{ts_srt(c['ini'])}] {c['txt']}")
-duvidosos = [c for c in cues if c["prob_min"] < 0.5]
+      + (f"  (não é o critério aqui: cue de ~{estilo['chars_por_cue']} "
+         f"caracteres lê num golpe)" if ritmo_proprio
+         else f"  (confortável até ~{MAX_CPS:.0f})"))
+if ritmo_proprio:
+    n_pisca = sum(1 for c in cues_ass if c["fim"] - c["ini"] < piso - 1e-6)
+    print(f"piso:        {piso:.2f}s  "
+          + ("nenhum cue abaixo" if not n_pisca
+             else f"{n_pisca} cue abaixo" if n_pisca == 1
+             else f"{n_pisca} cues abaixo"))
+    for c in cues_ass:
+        if c["fim"] - c["ini"] < piso - 1e-6:
+            print(f"  pisca ({c['fim'] - c['ini']:.2f}s): "
+                  f"[{ts_srt(c['ini'])}] {c['txt']}")
+else:
+    for c, v in zip(cues_ass, cps):
+        if v > MAX_CPS:
+            print(f"  rápido demais: [{ts_srt(c['ini'])}] {c['txt']}")
+duvidosos = [c for c in cues_ass if c["prob_min"] < 0.5]
 for c in duvidosos:
     print(f"  conferir (p={c['prob_min']:.2f}): [{ts_srt(c['ini'])}] {c['txt']}")
 print(f"\n{srt}\n{ass}")
