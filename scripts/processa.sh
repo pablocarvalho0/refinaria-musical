@@ -60,6 +60,9 @@ echo
 #                    CRF, medido nos nossos testes
 #    -r 60           força CFR; o Android grava VFR, que causa
 #                    dessincronia de áudio ao longo da edição
+#    -vf $GEO_VF     alvo 1920x1080 ou 1080x1920 conforme a orientação
+#                    do master (ver geometria_video no lib.sh). Era um
+#                    scale fixo em 16:9, que esmagava vertical calado
 #    -c:a copy       o áudio passa intacto; quem trata é o audio.sh
 #    +faststart      move o índice para o começo do arquivo:
 #                    upload e streaming começam sem baixar tudo
@@ -81,10 +84,17 @@ else
   echo "==> Audio: $ACOD $ASR Hz — reencodando para AAC 48 kHz (sem loudnorm)"
 fi
 
-echo "==> 1/2  Normalizando video (1080p60, x264 crf=$CRF)"
+# A orientação sai do master, não de um valor fixo: o canal produz
+# horizontal (YouTube longo) e vertical (Shorts e Reels), e a diferença
+# entre os dois é invisível em width/height — está no side data rotation.
+geometria_video "$IN"
+geometria_resumo
+echo
+
+echo "==> 1/2  Normalizando video (${GEO_ALVO_W}x${GEO_ALVO_H}@60, x264 crf=$CRF)"
 time ffmpeg_lim -y -hide_banner -loglevel warning -stats \
   -hwaccel cuda -i "$IN" \
-  -vf "scale=1920:1080" -r 60 \
+  -vf "$GEO_VF" -r 60 \
   -c:v libx264 -crf "$CRF" -preset "$PRESET" -pix_fmt yuv420p \
   "${AUDIO[@]}" \
   -metadata:s:a:0 language=por \

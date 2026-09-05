@@ -101,7 +101,11 @@ de trabalho — vídeo pronto, áudio ainda cru. O entregável é o `_audio.mp4`
 ```bash
 cd ~/video && source .venv/bin/activate
 
-# 1. Vídeo: 4K HEVC -> 1080p60 H.264. O áudio é copiado, não tratado.
+# 0. Confere a orientação do que chegou (vertical e horizontal convivem)
+./scripts/sonda.sh
+
+# 1. Vídeo: 4K HEVC -> 1080p60 H.264 (ou 1080x1920, se o master for
+#    vertical). O áudio é copiado, não tratado.
 #    Também extrai o .wav de 16 kHz para a transcrição.
 ./scripts/processa.sh ~/video/inbox/<arquivo>.mp4
 
@@ -680,12 +684,13 @@ esconde erro de sincronismo: dois ataques a 80 ms viram um ataque gordo.
 
 Quatro coisas que apareceram ao montar o vídeo de lá e que mordem aqui também.
 
-**O `scale=1920:1080` do `processa.sh` quebra em vídeo vertical.** Dois dos três
+**O `scale=1920:1080` do `processa.sh` quebrava em vídeo vertical** — corrigido
+em 05/09/2026, ver "Orientação do master". Dois dos três
 vídeos de lá são gravados **3840x2160 com `rotation=-90`** nos metadados: são
 *exibidos* 2160x3840. O ffmpeg gira sozinho antes dos filtros (autorotate), então
-o `scale` recebe o quadro já em pé. Como o `scale` daqui é fixo, um vídeo gravado
-com o celular em pé sai **esmagado, sem erro nenhum**. Ler `width`/`height` não
-detecta: é preciso `ffprobe -show_entries stream_side_data=rotation` e trocar as
+o `scale` recebe o quadro já em pé. Enquanto o `scale` daqui era fixo, um vídeo
+gravado com o celular em pé saía **esmagado, sem erro nenhum**. Ler `width`/`height`
+não detecta: é preciso `ffprobe -show_entries stream_side_data=rotation` e trocar as
 dimensões quando a rotação for ±90. Lá o sintoma foi um painel saindo 608x1080.
 
 **O priming de 1024 amostras não é só do `audio.sh`.** Este arquivo já registrava
@@ -814,6 +819,54 @@ qualquer vídeo com layout misto.
   scrim em rampa (`geq` sobre o alfa) o pior dos três candidatos subiu de
   3,50:1 para 4,69:1.
 
+## Orientação do master — medido em 05/09/2026
+
+O canal produz horizontal (YouTube longo) e vertical (Shorts e Reels), e
+o `processa.sh` agora atende os dois. Quem decide é `geometria_video`, em
+`scripts/lib.sh`: lê o side data `rotation`, troca as dimensões quando o
+giro é ±90 e escolhe 1920x1080 ou 1080x1920. `ORIENTACAO=h|v` força, para
+quando o metadado mentir.
+
+**O modo de falha antigo era mudo.** O `scale=1920:1080` era fixo, e o
+ffmpeg aplica a rotação dos metadados *antes* dos filtros (autorotate):
+o `scale` recebia um quadro 2160x3840 e o espremia num 16:9. Código de
+saída 0, nenhum aviso. Medido no `improviso_3`:
+
+| | fx | fy | anisotropia |
+|---|---|---|---|
+| `scale=1920:1080` fixo | 0,8889 | 0,2812 | **3,16x** |
+| `geometria_video` | 0,5000 | 0,5000 | **1,000** |
+
+Conferido nos três casos que existem hoje no `inbox` — vertical 4K, 8K
+horizontal e 4K horizontal: saída na dimensão certa, SAR 1:1, 60 fps CFR,
+e `cropdetect` acusando área útil igual ao quadro inteiro (nenhuma barra
+espúria). A prova visual é direta: no frame antigo o rosto sai achatado.
+
+**Escalar nunca distorce, mesmo com proporção torta.** O filtro é
+`scale=...:force_original_aspect_ratio=decrease:force_divisible_by=2`
+seguido de `pad` e `setsar=1`. O alvo continua exato — o concat exige —
+mas o que não couber vira barra preta em vez de esticão. Para uma fonte
+16:9 indo a 1920x1080 é no-op, custo zero. O `setsar=1` fecha a outra
+porta: SAR diferente de 1 atravessa o encode e o player estica na
+exibição, mesmo sintoma por outro caminho.
+
+`./scripts/sonda.sh` mostra a geometria do `inbox` antes de processar.
+Vale rodar sempre: a orientação é invisível na listagem, e dois arquivos
+que o ffprobe declara 3840x2160 podem ser um deitado e outro em pé.
+
+### Duas armadilhas de shell, ambas descobertas testando isto
+
+**`ffprobe -of csv=p=0` pode devolver a vírgula junto.** Num stream com
+side data, `-show_entries stream=width` sai como `3840,` — o separador
+de uma coluna que ficou vazia. A vírgula entra na variável e o `(( ))`
+seguinte morre com `operand expected`. Usar `-of default=nw=1:nk=1`.
+
+**`grep` sem match derruba o script inteiro sob `pipefail`.** A sonda de
+rotação é um pipeline com `grep`, e material horizontal é justamente o
+caso em que não há o que achar: o `grep` retorna 1, o `pipefail`
+propaga, o `set -e` aborta. O sintoma foi o `processa.sh` terminando
+mudo depois da linha do áudio, sem erro visível. Fechar com `|| true`.
+
 ## Pendências conhecidas
 
 - [x] ~~Áudio saindo a 96 kHz~~ — resolvido com `-ar 48000` na saída de áudio de
@@ -875,10 +928,10 @@ qualquer vídeo com layout misto.
       em matiz, serifa nos dois casos). Ver "Duas soluções, uma direção" em
       `docs/04-identidade.md`.
 
-- [ ] **`processa.sh` distorce vídeo vertical.** O `scale=1920:1080` é fixo e
-      não olha `rotation`. Um vídeo gravado com o celular em pé sai esmagado,
-      sem erro. Ver "Armadilhas de ffmpeg e de AAC, vistas no like-a-stone".
-      Corrigir antes que entre um vertical no `inbox/`, não depois.
+- [x] ~~`processa.sh` distorce vídeo vertical~~ — resolvido em 05/09/2026,
+      no mesmo dia em que os dois primeiros verticais entraram no `inbox`
+      (`improviso_3` e `20260717_113135`, ambos `rotation=-90`). Ver
+      "Orientação do master", acima.
 - [ ] Os parâmetros das cadeias do `audio.sh` (`afftdn=nr=10:nf=-30`,
       `acompressor` em −18 dB / 3:1) foram escolhidos por convenção, não medidos.
       A degradação da transcrição no áudio tratado sugere que o denoise está
