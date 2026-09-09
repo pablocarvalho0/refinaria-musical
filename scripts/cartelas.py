@@ -37,9 +37,62 @@ FONTES_INTER = pathlib.Path("/usr/share/fonts/opentype/inter")
 # Tokens e fontes
 # ---------------------------------------------------------------------------
 
-def tokens() -> dict:
+# Medidas em PIXEL, as únicas que acompanham a resolução de saída.
+#
+# Cartela desenhada em 1080x1920 e escalada 2x para um vídeo 4K entra com o
+# texto borrado — e logo na parte do quadro que é tipografia pura, que é
+# onde a perda mais aparece. Então a cartela se DESENHA na resolução do
+# vídeo, e o que muda é o token, não o PNG.
+#
+# O que NÃO está aqui é tão importante quanto o que está: `duracao`,
+# `atraso`, os `fade_*` e `scrim_forca` são tempo e alfa, e `entrelinha` é
+# múltiplo do tamanho da fonte. Escalar qualquer um deles mudaria a
+# montagem em vez da resolução.
+_PX_FORMATO = ("largura", "altura", "tamanho", "contorno", "sombra",
+               "margem_lateral", "margem_inferior")
+_PX_CARTELA = ("barra_largura", "barra_gap", "contorno",
+               "scrim_rampa", "scrim_folga")
+_PX_SECAO = ("tamanho_titulo", "tamanho_credito", "tamanho_chip",
+             "chip_tracking", "tamanho_etiqueta", "tamanho_nome",
+             "tamanho_handle", "etiqueta_tracking", "fio_largura")
+
+
+def tokens(largura: int | None = None, fmt: str = "9x16") -> dict:
+    """Os tokens da marca, opcionalmente redimensionados para `largura`.
+
+    Sem argumento devolve o arquivo como está — é o que todo chamador
+    antigo recebe, e por isso nada muda para quem não pede escala.
+
+    Com `largura`, todas as medidas em pixel são multiplicadas por
+    largura/largura_do_formato. Ver "Resolução de entrega" no CLAUDE.md.
+    """
     with (RAIZ / "marca" / "tokens.toml").open("rb") as f:
-        return tomllib.load(f)
+        t = tomllib.load(f)
+    if largura is None:
+        return t
+
+    base = t["formato"][fmt]["largura"]
+    if largura == base:
+        return t
+    k = largura / base
+
+    def esc(v):
+        return round(v * k) if isinstance(v, int) else v * k
+
+    f_ = t["formato"][fmt]
+    for campo in _PX_FORMATO:
+        if campo in f_:
+            f_[campo] = esc(f_[campo])
+    c = t["cartela"]
+    for campo in _PX_CARTELA:
+        if campo in c:
+            c[campo] = esc(c[campo])
+    for secao, sub in c.items():
+        if isinstance(sub, dict):
+            for campo in _PX_SECAO:
+                if campo in sub:
+                    sub[campo] = esc(sub[campo])
+    return t
 
 
 def fonte(caminho: str, tam: int) -> ImageFont.FreeTypeFont:
@@ -280,7 +333,6 @@ def creditos(t, fmt, titulo, autoria, papeis, sem_texto=False):
     f_cred = fonte(fc["serif_it"], cc["tamanho_credito"])
     f_et = fonte(fc["sans_bold"], cc["tamanho_etiqueta"])
     f_nome = fonte(fc["serif_bold"], cc["tamanho_nome"])
-    f_handle = fonte(fc["sans_medio"], cc["tamanho_handle"])
 
     elementos = [
         _texto(titulo, f_tit, int(f_tit.size * el)),
@@ -290,9 +342,8 @@ def creditos(t, fmt, titulo, autoria, papeis, sem_texto=False):
         _fio(cc["fio_largura"], int(f_et.size * 1.9), int(f_tit.size * 3.4)),
         _tracking(papeis.upper(), f_et, cc["etiqueta_tracking"],
                   int(f_et.size * 1.7)),
-        _texto(f"{m['nome']} {m['sufixo']}", f_nome, int(f_nome.size * el)),
-        _espaco(int(f_handle.size * 0.34)),
-        _texto(m["handle"], f_handle, int(f_handle.size * el)),
+        # Uma linha só de identidade — ver [cartela.creditos] assinatura.
+        _texto(cc["assinatura"], f_nome, int(f_nome.size * el)),
     ]
     return monta(t, fmt, elementos, sem_texto)
 

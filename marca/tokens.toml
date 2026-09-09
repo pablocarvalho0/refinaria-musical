@@ -259,6 +259,14 @@ tamanho_etiqueta = 24
 tamanho_nome = 66
 tamanho_handle = 28
 etiqueta_tracking = 3
+
+# UMA linha de identidade abaixo do fio, não duas. A cartela trazia o
+# lockup ("Pablo Carvalho SM") e, embaixo, o handle autogerado do YouTube
+# ("@PabloCarvalho-q1o"): duas linhas dizendo a mesma pessoa, uma delas
+# com cara de identificador de sistema. Decidido pelo autor em 06/09/2026,
+# olhando a cartela na tela. A etiqueta logo acima já diz o papel, então
+# "By" seria redundante — é só o nome.
+assinatura = "Pablo Carvalho"
 fio_largura = 2          # o fio fino que separa a obra de quem a executou
 
 

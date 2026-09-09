@@ -1408,6 +1408,26 @@ e tocou. É a mesma família do `scale=1920:1080` fixo que esmagava vertical
 plausível e a perda só aparece assistindo.** Quem viu primeiro foi o autor,
 na tela — de novo antes de haver número.
 
+## Cartelas de peça que não é cover — 05/09/2026
+
+O `cartelas.py` desenha a peça de **cover**: obra, autoria, ano, um executante.
+O `improviso_4` não é isso — não há obra de terceiro para creditar, há uma
+piada para contar e **duas pessoas** tocando. Daí dois arquivos novos, que
+reusam o desenho e trocam só a composição:
+
+- `scripts/cartelas_improviso.py` — as cartelas do improviso, em três
+  variantes, e imprime as especificações `PNG:entra:sai`;
+- `scripts/monta-cartelas.sh` — o irmão genérico do `cartelas.sh`: recebe uma
+  lista arbitrária de cartelas com seus instantes e não sabe o que elas dizem.
+  Existe porque a piada pede três cartelas em duas batidas, e o `cartelas.sh`
+  só sabe fazer duas.
+
+Nenhum dos dois escreve cor, tamanho ou margem: continua tudo em
+`marca/tokens.toml`.
+
+**Na ficha técnica a etiqueta vem ANTES do nome.** Num crédito de uma pessoa
+a ordem é indiferente; num de duas, não: o olho encontra `BATERIA` e já sabe
+de quem é o nome ao lado, sem inferir pela ordem de aparição.
 
 ## Pendências conhecidas
 
