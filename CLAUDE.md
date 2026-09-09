@@ -469,6 +469,17 @@ resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o times
   da mesma música, medido em 30/08/2026 nos dois projetos de `~/Music/
   Projetos`. **Ler antes de tentar casar duas tomadas por correlação** — a
   correlação global falha em música repetitiva e falha mentindo.
+- `docs/05-cover-hard-days-night.md` — o cover instrumental vertical do
+  `improviso_3`, medido em 05/09/2026: cadeia de áudio sem denoise e sem
+  compressor, reverb por convolução, cartelas com scrim e a análise de seções.
+  **Ler antes de mexer nos parâmetros do `audio.sh`** — é onde estão os números
+  que dizem que o `afftdn` e o `acompressor` atuais cobram caro.
+- `docs/06-camera-virtual.md` — zoom e reenquadramento animados sobre um plano
+  fixo (`scripts/dinamica.sh` + `scripts/camera.py`), medido em 05/09/2026 no
+  `improviso_3`. **Ler antes de mexer em filtro que muda de tamanho por
+  frame**: `in_w` no `crop` não acompanha um `scale` com `eval=frame`, e o
+  vídeo sai deslocado sem um único aviso. Três variantes de ritmo aguardam
+  validação em `out/improviso_3/testes-dinamica/`.
 
 ## Segmentação fala/música (Fase 1 — passo 2 feito)
 
@@ -1526,10 +1537,53 @@ de quem é o nome ao lado, sem inferir pela ordem de aparição.
       no mesmo dia em que os dois primeiros verticais entraram no `inbox`
       (`improviso_3` e `20260717_113135`, ambos `rotation=-90`). Ver
       "Orientação do master", acima.
-- [ ] Os parâmetros das cadeias do `audio.sh` (`afftdn=nr=10:nf=-30`,
-      `acompressor` em −18 dB / 3:1) foram escolhidos por convenção, não medidos.
-      A degradação da transcrição no áudio tratado sugere que o denoise está
-      forte demais. Medir antes de confiar.
+- [~] Os parâmetros das cadeias do `audio.sh` (`afftdn=nr=10:nf=-30`,
+      `acompressor` em −18 dB / 3:1) foram escolhidos por convenção, e agora
+      estão medidos **em violão solo**: o denoise come 2,60 ± 0,29 dB de agudo
+      nos ataques sem ter ruído para remover, e o compressor cobra 7,66 dB de
+      profundidade para entregar o nivelamento que o rider entrega de graça.
+      Ver "O denoise raspa sinal". **Falta a metade que importa para estas
+      cadeias**: medir em episódio com fala, que é onde o `afftdn` roda. Só
+      então trocar por high-pass.
+
+- [x] ~~`improviso_4` está montado e não publicado~~ — **publicado em
+      08/09/2026**, em 4K: `youtu.be/EiCNIQieb_o`. O entregável é
+      `out/improviso_4/improviso_4_final_4k.mp4` (2160x3840, 25,2 Mbps), com
+      a variante `opD` reconstruída sobre a grade musical — plano fechado até
+      6,571s, geral até 14,466s, destaque 27,237→32,299s, volta em 42,237s,
+      cartela de abertura segurada até 9,706s. A versão 1080p que subiu antes
+      foi excluída do canal. Capa: frame de 37,07s pelo `marca.py`.
+- [~] **O sobrenome do Rafael é Rafael Alves** — veio da descrição que o
+      Pablo escreveu no Studio, e o `FICHA` do `cartelas_improviso.py` já foi
+      corrigido. **O vídeo publicado ainda tem "Rafael" seco na cartela de
+      créditos**: corrigir exige regerar as cartelas e subir de novo, o que
+      vale juntar com a linha do handle (abaixo).
+- [ ] **A cartela de créditos ainda traz `@PabloCarvalho-q1o`.** O
+      `marca/tokens.toml` registra a decisão de 06/09/2026 de trocar essa
+      linha pelo nome (`assinatura = "Pablo Carvalho"`), mas o
+      `cartelas_improviso.py` não usa o token — usa o handle. Está no vídeo
+      publicado. Juntar com o sobrenome numa rodada só.
+- [~] **Os tempos dos três atos foram decididos, não medidos** — e na
+      republicação em 4K eles passaram pela grade: `--encaixa` mostrou que
+      27,2 e 32,3 já eram tempos fortes exatos (erro +37ms e −1ms) e que
+      9,706 é tempo forte E fronteira de seção. Os do plano fechado e do
+      geral foram encaixados no tempo forte (6,571 e 14,466); **não há
+      registro de qual dos dois candidatos o corte de 05/09 usou** — o
+      `--encaixa` oferece tempo forte e batida, e a diferença ali é de ~400ms.
+      Os valores de 05/09 eram 7,0s de plano fechado, 15,0s de plano geral,
+      1,2s de afastamento e 0,5s de divisão — quatro números vindos de uma
+      leitura só, num episódio só. Cada um é
+      um parâmetro (`--fechado`, `--geral`, `empilhado.zoom`,
+      `empilhado.transicao`), então corrigir é barato — mas ainda não há n>1.
+- [ ] **O `--uniforme` não alcança o teto de true peak quando o master chega
+      clipando.** Medido no `improviso_4`: o master tem I=−14,94 e TP=+0,59;
+      o alvo de loudness bate certo (−14,1 LUFS, LRA 3,5 preservado), mas o
+      true peak fica em **−0,8 dBTP contra os −1,5 pedidos**. O ganho de
+      +0,94 dB que o alvo exige levaria o pico a +1,5, então o `loudnorm`
+      sai do modo linear e o limitador dele não desce até o teto. Não há
+      clipping e as plataformas normalizam, então não trava publicação — mas
+      é desvio real, e a correção (um limitador explícito antes do
+      `loudnorm`) precisa ser medida antes de entrar na cadeia.
 
 ## Glossário de transcrição
 
