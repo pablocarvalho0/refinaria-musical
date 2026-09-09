@@ -151,6 +151,24 @@ LRA_MUSICA="${LRA_MUSICA:-20}" # música: faixa larga, para não virar modo din�
 LRA_UNIF="${LRA_UNIF:-11}"     # classe única: alvo padrão do YouTube
 RAMPA="${RAMPA:-0.050}"        # s — largura da transição entre as duas cadeias
 
+# MUSICA_WAV: o ramo de MÚSICA vem de um WAV já tratado, em vez da cadeia
+# interna. Existe porque a cadeia de música daqui é um loudnorm e nada
+# mais, e violão solo pede outra coisa — reverb, e um ganho lento em vez
+# de compressor. Quem faz isso é o scripts/violao.sh, em Python, e não há
+# como pôr convolução dentro deste filtergraph.
+#
+# O WAV entra PRONTO: já normalizado e limitado pelo violao_dsp.py, então
+# aqui ele não passa por loudnorm nenhum — normalizar duas vezes desfaria
+# o trabalho do rider. A única coisa que este script faz com ele é
+# posicionar na linha do tempo (MUSICA_OFFSET) e aplicar a máscara.
+#
+#   MUSICA_WAV=work/ep00_violao.wav MUSICA_OFFSET=37.410 ./scripts/audio.sh ...
+MUSICA_WAV="${MUSICA_WAV:-}"
+MUSICA_OFFSET="${MUSICA_OFFSET:-0}"
+if [[ -n "$MUSICA_WAV" ]]; then
+  [[ -f "$MUSICA_WAV" ]] || { echo "MUSICA_WAV não encontrado: $MUSICA_WAV" >&2; exit 1; }
+  [[ "$UNIFORME" -eq 0 ]] || { echo "MUSICA_WAV não faz sentido com --uniforme" >&2; exit 1; }
+fi
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 # =====================================================================
@@ -272,7 +290,18 @@ if [[ "$UNIFORME" -eq 1 ]]; then
   mede UNICO "[0:a]${CAD_MUSICA},loudnorm=I=${LUFS}:TP=${TP}:LRA=${LRA_UNIF}:print_format=json[m]"
 else
   mede_classe FALA   "$CAD_FALA"   "$LRA_FALA"
-  mede_classe MUSICA "$CAD_MUSICA" "$LRA_MUSICA"
+  if [[ -n "$MUSICA_WAV" ]]; then
+    echo "    MUSICA  vem de $MUSICA_WAV (offset ${MUSICA_OFFSET}s) — sem medição, já tratado"
+    "$PY" -c "
+import soundfile as sf
+i = sf.info('$MUSICA_WAV')
+print('            %.3f s, %d Hz, %d canal(is)' % (i.frames / i.samplerate, i.samplerate, i.channels))
+import sys
+if i.samplerate != 48000:
+    sys.exit('  ERRO: MUSICA_WAV precisa estar a 48 kHz, veio %d' % i.samplerate)"
+  else
+    mede_classe MUSICA "$CAD_MUSICA" "$LRA_MUSICA"
+  fi
 fi
 
 # =====================================================================
@@ -291,11 +320,14 @@ print(f"[0:a]{cadeia},loudnorm=I={lufs}:TP={tp}:LRA={lra}:linear=true"
       f":offset={d['target_offset']},apad[a]")
 PY
 else
+  DUR_SRC=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$SRC")
   "$PY" - "$SEG" "$RAMPA" "$CAD_FALA" "$CAD_MUSICA" \
          "$TMP/m_FALA.json" "$TMP/m_MUSICA.json" \
-         "$LUFS" "$TP" "$LRA_FALA" "$LRA_MUSICA" > "$TMP/render.txt" <<'PY'
+         "$LUFS" "$TP" "$LRA_FALA" "$LRA_MUSICA" \
+         "$MUSICA_WAV" "$MUSICA_OFFSET" "$DUR_SRC" > "$TMP/render.txt" <<'PY'
 import json, sys
-(seg, rampa, cad_f, cad_m, jf, jm, lufs, tp, lra_f, lra_m) = sys.argv[1:11]
+(seg, rampa, cad_f, cad_m, jf, jm, lufs, tp, lra_f, lra_m,
+ musica_wav, musica_offset, dur_src) = sys.argv[1:14]
 R = float(rampa)
 
 def segundos(x):
@@ -321,6 +353,35 @@ termos = [f"max(0\\,min(1\\,min((t-{a:.3f})/{R}\\,({b:.3f}-t)/{R})))"
           for a, b in fala]
 mascara = f"min(1\\,{'+'.join(termos)})" if len(termos) > 1 else termos[0]
 
+# Com MUSICA_WAV, a máscara de música é limitada à JANELA do WAV.
+#
+# Sem isso, uma região de MÚSICA fora do trecho tratado pede o ramo de
+# música onde o adelay só tem zeros, e o resultado é silêncio absoluto —
+# sem erro, sem aviso. Aconteceu: o ep00 tem MUSICA de 0 a 1,790s (o
+# autor ajustando o celular antes de falar) e o WAV começa em 37,410s;
+# o entregável saiu com 1,785s mudos no começo.
+#
+# A janela é um trapézio que vale 1 de offset a offset+dur e sobe nos R
+# segundos ANTES do offset — não depois. Assim, na fronteira FALA->MUSICA
+# a janela já vale 1 e o crossfade fica inteiro por conta da máscara de
+# fala, como antes. Para isso o WAV precisa começar R segundos antes da
+# fronteira; é por isso que o --inicio do violao.sh é 37,360 e não 37,410.
+#
+# Fora da janela a música vale 0 e a fala vale 1: o trecho herda a cadeia
+# de fala, que é cadeia de áudio legítima. As duas continuam somando
+# exatamente 1 em todo ponto, que é a propriedade que sustenta a rampa.
+if musica_wav:
+    import soundfile as _sf
+    off = float(musica_offset)
+    dur = _sf.info(musica_wav).frames / _sf.info(musica_wav).samplerate
+    janela = (f"max(0\\,min(1\\,min((t-{off - R:.3f})/{R}\\,"
+              f"({off + dur + R:.3f}-t)/{R})))")
+    m_musica = f"({janela})*(1-({mascara}))"
+    m_fala = f"1-({m_musica})"
+else:
+    m_musica = f"1-({mascara})"
+    m_fala = mascara
+
 def ln(j, lra):
     d = json.load(open(j))
     return (f"loudnorm=I={lufs}:TP={tp}:LRA={lra}:linear=true"
@@ -339,12 +400,26 @@ def ln(j, lra):
 #
 # apad no fim: o áudio termina alguns ms antes do vídeo, e sem isso o
 # -shortest apara o VÍDEO em vez do áudio — mediu-se um frame a menos.
+# Com MUSICA_WAV o ramo de música é uma ENTRADA, não um ramo do asplit:
+# ele já vem tratado do violao.sh e não passa por cadeia nem por loudnorm.
+# O adelay o põe no instante em que o trecho foi extraído, e o
+# apad=whole_dur o iguala à duração do de fala — sem isso o amix
+# encerraria aquele input alguns ms antes do fim e o último instante do
+# arquivo sairia mudo, porque ali a máscara de fala vale 0.
+if musica_wav:
+    ms = int(round(float(musica_offset) * 1000))
+    fonte_m = (f"[1:a]adelay={ms}|{ms}:all=1,"
+               f"apad=whole_dur={float(dur_src):.6f},aresample=48000")
+else:
+    fonte_m = f"[m]{cad_m},{ln(jm, lra_m)}"
+
 print(
-    "[0:a]asplit=2[s][m];"
-    f"[s]{cad_f},{ln(jf, lra_f)},asetnsamples=n=256:p=0,"
-    f"volume=volume='{mascara}':eval=frame[sg];"
-    f"[m]{cad_m},{ln(jm, lra_m)},asetnsamples=n=256:p=0,"
-    f"volume=volume='1-({mascara})':eval=frame[mg];"
+    ("[0:a]asplit=2[s][m];" if not musica_wav else "")
+    + f"{'[0:a]' if musica_wav else '[s]'}{cad_f},{ln(jf, lra_f)},"
+    f"asetnsamples=n=256:p=0,"
+    f"volume=volume='{m_fala}':eval=frame[sg];"
+    f"{fonte_m},asetnsamples=n=256:p=0,"
+    f"volume=volume='{m_musica}':eval=frame[mg];"
     "[sg][mg]amix=inputs=2:duration=longest:normalize=0,apad[a]"
 )
 PY
@@ -358,10 +433,20 @@ echo "==> 4/5  Renderizando audio e remuxando"
 # mesmo grafo é usado na medição, onde $SRC é a única entrada. Inverter
 # a ordem faria o render processar o áudio do container de vídeo. Já
 # aconteceu; por isso o comentário.
+# A ordem das entradas é a que o grafo referencia: [0:a] é o áudio de
+# trabalho, [1:a] é o WAV de música quando há um, e o vídeo é o último.
+ENTRADAS=(-i "$SRC")
+MAPA_V="1:v:0"
+if [[ -n "$MUSICA_WAV" ]]; then
+  ENTRADAS+=(-i "$MUSICA_WAV")
+  MAPA_V="2:v:0"
+fi
+ENTRADAS+=(-i "$VIDEO")
+
 time ffmpeg_lim -y -hide_banner -loglevel warning -stats \
-  -i "$SRC" -i "$VIDEO" \
+  "${ENTRADAS[@]}" \
   -filter_complex_script "$TMP/render.txt" \
-  -map 1:v:0 -map "[a]" \
+  -map "$MAPA_V" -map "[a]" \
   -c:v copy \
   -c:a aac -b:a 192k -ar 48000 \
   -metadata:s:a:0 language=por \
