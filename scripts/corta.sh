@@ -25,7 +25,9 @@ BASE=$(basename "$IN"); BASE="${BASE%.*}"
 # removido — tirar o _final também faria a saída colidir com a entrada
 # ao reaplicar um corte, e o ffmpeg sobrescreveria o próprio fonte.
 BASE="${BASE%_norm}"
-OUT="$HOME/video/out"
+pasta_projeto "$IN"
+OUT="$PROJETO_DIR"
+projeto_resumo
 
 # Converte HH:MM:SS.mmm (ou MM:SS.mmm, ou segundos) para segundos.
 #

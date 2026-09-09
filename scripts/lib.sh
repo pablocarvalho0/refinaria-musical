@@ -168,3 +168,147 @@ geometria_resumo() {
   echo "==> Geometria: ${GEO_W}x${GEO_H} exibidas, rotation=${GEO_ROT}° -> ${GEO_ORIENT}"
   echo "    Alvo: ${GEO_ALVO_W}x${GEO_ALVO_H}${aviso}"
 }
+
+# ---------------------------------------------------------------------
+# Pasta de saída por projeto
+#
+# Em 05/09/2026 o out/ tinha 40 arquivos de 4 masters, e o improviso_4
+# sozinho respondia por 8 deles: _v, _vg, .v1, .v2, .v3. O mesmo vídeo
+# gera cortes diferentes e testes de dinâmica distintos, e o nome do
+# arquivo era a única coisa separando um do outro. Publicar o errado é
+# silencioso — só se percebe assistindo.
+#
+# A saída passa a ser out/<projeto>/, com o projeto derivado do caminho.
+# Um nível só, de propósito: os sufixos de variante (_v, _cover, .v1) já
+# distinguem dentro da pasta, e a transcrição, o .srt e o segmentos.txt
+# são do episódio inteiro — não têm onde morar num segundo nível.
+#
+# A resolução tem quatro degraus, do mais explícito ao mais adivinhado:
+#
+#   1. $PROJETO, se estiver setado. É o escape hatch, como ORIENTACAO.
+#   2. o caminho já está sob out/<X>/  ->  X. Cobre todo o meio do
+#      fluxo: audio.sh, corta.sh e legenda.py recebem arquivos que o
+#      passo anterior já colocou na pasta certa.
+#   3. a maior pasta de out/ que prefixa o basename. É o que faz
+#      work/improviso_4_v.wav voltar para out/improviso_4/, sem o work/
+#      precisar mudar de forma.
+#   4. o basename sem extensão e sem sufixo de etapa. Só sobra para a
+#      primeira execução, com o master vindo do inbox — onde o nome
+#      está limpo e o palpite é o certo.
+#
+# Nunca falha calado: quem chama imprime o projeto resolvido com
+# projeto_resumo, porque escrever na pasta errada é exatamente o tipo de
+# erro que só aparece três passos depois.
+# ---------------------------------------------------------------------
+
+# Seta PROJETO_NOME e PROJETO_ORIGEM, e ecoa o nome. As duas coisas
+# porque há dois usos: $(projeto_de x) para quem só quer o valor, e a
+# chamada direta de pasta_projeto, que precisa da ORIGEM para o log —
+# e substituição de comando abre subshell, de onde variável não volta.
+PROJETO_NOME=""; PROJETO_ORIGEM=""
+
+projeto_de() {
+  local caminho="$1"
+  local raiz="${RAIZ_OUT:-$HOME/video/out}"
+
+  # 1. explícito
+  if [[ -n "${PROJETO:-}" ]]; then
+    PROJETO_NOME="$PROJETO"; PROJETO_ORIGEM="variável PROJETO"
+    echo "$PROJETO_NOME"; return
+  fi
+
+  local abs; abs=$(readlink -m "$caminho")
+
+  # 2. já está dentro de out/<X>/
+  if [[ "$abs" == "$raiz"/*/* ]]; then
+    local resto="${abs#"$raiz"/}"
+    PROJETO_NOME="${resto%%/*}"; PROJETO_ORIGEM="pasta de origem"
+    echo "$PROJETO_NOME"; return
+  fi
+
+  local base; base=$(basename "$caminho"); base="${base%.*}"
+
+  # 3. maior pasta existente que prefixa o basename
+  local melhor="" cand nome
+  if [[ -d "$raiz" ]]; then
+    for cand in "$raiz"/*/; do
+      [[ -d "$cand" ]] || continue
+      nome=$(basename "$cand")
+      [[ "$base" == "$nome" || "$base" == "$nome"_* || "$base" == "$nome".* ]] || continue
+      (( ${#nome} > ${#melhor} )) && melhor="$nome"
+    done
+  fi
+  if [[ -n "$melhor" ]]; then
+    PROJETO_NOME="$melhor"; PROJETO_ORIGEM="pasta existente que prefixa o nome"
+    echo "$PROJETO_NOME"; return
+  fi
+
+  # 4. basename sem sufixo de etapa
+  #
+  # Os sufixos com ponto importam tanto quanto os com underscore: sem
+  # eles, ep00.16x9.ass abria uma pasta out/ep00.16x9/. O degrau só é
+  # usado quando a pasta ainda não existe — ou seja, exatamente na
+  # primeira execução, quando não há nada para corrigir o palpite.
+  local antes
+  while :; do
+    antes="$base"
+    base="${base%_norm}"; base="${base%_audio}"
+    base="${base%_final}"; base="${base%_legendado}"; base="${base%_work48}"
+    base="${base%.16x9}"; base="${base%.9x16}"
+    base="${base%.words}"; base="${base%.segments}"; base="${base%.segmentos}"
+    [[ "$base" =~ \.v[0-9]+$ ]] && base="${base%.*}"
+    [[ "$base" == "$antes" ]] && break
+  done
+  PROJETO_NOME="$base"; PROJETO_ORIGEM="nome do arquivo"
+  echo "$PROJETO_NOME"
+}
+
+# Resolve o projeto, cria a pasta e deixa PROJETO_DIR pronto.
+# ---------------------------------------------------------------------
+# Rodada de testes: RODADA=<slug> desvia a escrita para out/<ep>/testes/<slug>/
+#
+# Comparar variantes gera muito mais arquivo do que publicar uma. Em
+# 05/09/2026 uma única rodada de quatro opções pôs dez arquivos em
+# out/improviso_4/ — seis intermediários e quatro montagens —, ao lado do
+# corte aprovado, e o nome voltou a ser a única coisa separando o que se
+# publica do que se está julgando. É a mesma falha de 41 arquivos que
+# criou a pasta por projeto, um nível abaixo.
+#
+# A separação NÃO contradiz o "um nível, não dois" daquela decisão. Lá o
+# que se recusou foi uma pasta por ENTREGA, porque a transcrição, o .srt e
+# o segmentos.txt são do episódio inteiro e não teriam onde morar. Aqui a
+# pasta é por RODADA de teste, e é exatamente o material que NÃO é do
+# episódio inteiro: renders descartáveis, que existem para serem
+# comparados e depois apagados.
+#
+# Duas variáveis, de propósito:
+#   PROJETO_RAIZ  out/<ep>/ — onde vivem os textos do episódio. Quem
+#                 PROCURA insumo procura aqui, com ou sem rodada.
+#   PROJETO_DIR   onde ESTA execução escreve. Igual à raiz, ou a pasta da
+#                 rodada quando RODADA está setada.
+#
+# Confundir as duas é o que faria o audio.sh de uma rodada não achar o
+# segmentos.txt do episódio e cair no modo errado sem avisar.
+# ---------------------------------------------------------------------
+pasta_projeto() {
+  # sem $( ): a origem é setada dentro de projeto_de e subshell não devolve
+  projeto_de "$1" >/dev/null
+  PROJETO_RAIZ="${RAIZ_OUT:-$HOME/video/out}/$PROJETO_NOME"
+  PROJETO_DIR="$PROJETO_RAIZ"
+  if [[ -n "${RODADA:-}" ]]; then
+    [[ "$RODADA" =~ ^[A-Za-z0-9._-]+$ && "$RODADA" != *..* ]] || {
+      echo "RODADA inválida: '$RODADA' — só letras, números, . _ -" >&2; exit 2; }
+    PROJETO_DIR="$PROJETO_RAIZ/testes/$RODADA"
+  fi
+  mkdir -p "$PROJETO_DIR"
+}
+
+projeto_resumo() {
+  echo "==> Projeto: ${PROJETO_NOME}  (por ${PROJETO_ORIGEM})"
+  if [[ -n "${RODADA:-}" ]]; then
+    echo "    Rodada de teste: ${RODADA}  — NÃO é entregável"
+    echo "    Saída em: out/${PROJETO_NOME}/testes/${RODADA}/"
+  else
+    echo "    Saída em: out/${PROJETO_NOME}/"
+  fi
+}

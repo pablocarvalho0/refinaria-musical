@@ -14,7 +14,7 @@ amostrado do violão), pelo mesmo motivo que capa de disco e encarte combinam:
 se a capa fala outra língua, ela parece de outro vídeo.
 
 Uso:
-  python scripts/capa_arte.py frame.png --saida out/capas/arte
+  python scripts/capa_arte.py frame.png --saida out/<ep>/capas/arte
 """
 import argparse, subprocess, tempfile
 from pathlib import Path

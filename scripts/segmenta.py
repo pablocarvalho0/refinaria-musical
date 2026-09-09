@@ -3,12 +3,12 @@
 Passo 1 de docs/01-arquitetura-segmentacao.md.
 
 Classifica o vídeo em regiões FALA e MUSICA a partir da transcrição e mede a
-zona cinzenta. NÃO processa áudio nem corta — só produz work/segmentos.txt e
+zona cinzenta. NÃO processa áudio nem corta — só produz o segmentos.txt e
 o relatório que decide se a arquitetura de segmentação se sustenta.
 
 Entrada:  work/<base>.segments.tsv  (sidecar do transcreve.py: start, end, text)
           work/<base>.wav           (16 kHz mono, para a energia RMS)
-Saída:    work/segmentos.txt
+Saída:    out/<projeto>/<base>.segmentos.txt
 
 Uso: python scripts/segmenta.py work/20260824_135542.wav
 """
@@ -18,6 +18,10 @@ import sys
 import wave
 
 import numpy as np
+
+import sys as _sys
+_sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from projeto import pasta_episodio, resumo as resumo_projeto
 
 # Limiares da medição. Os dois primeiros vêm do documento ("segmentos de fala
 # com menos de 2s"); o piso de silêncio é a referência usual para ruído de sala
@@ -82,7 +86,8 @@ def fmt_db(v: float) -> str:
 
 ap = argparse.ArgumentParser()
 ap.add_argument("wav", help="work/<base>.wav")
-ap.add_argument("--out", default=None, help="padrão: work/segmentos.txt")
+ap.add_argument("--out", default=None,
+                help="padrão: out/<projeto>/<base>.segmentos.txt")
 args = ap.parse_args()
 
 wav = pathlib.Path(args.wav).expanduser().resolve()
@@ -152,7 +157,17 @@ for r in regioes:
 # ---------------------------------------------------------------
 # work/segmentos.txt
 # ---------------------------------------------------------------
-destino = pathlib.Path(args.out) if args.out else wav.with_name("segmentos.txt")
+# O padrão era work/segmentos.txt — nome global, sem o nome do episódio:
+# processar dois masters seguidos fazia o segundo sobrescrever o primeiro
+# em silêncio, e o audio.sh do primeiro passava a mascarar com as regiões
+# do segundo. Agora sai em out/<projeto>/<base>.segmentos.txt, junto do
+# resto do episódio.
+if args.out:
+    destino = pathlib.Path(args.out)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+else:
+    print(resumo_projeto(wav, episodio=True))
+    destino = pasta_episodio(wav) / f"{wav.stem}.segmentos.txt"
 with destino.open("w", encoding="utf-8") as f:
     f.write(f"# segmentacao fala/musica — fonte: {tsv.name}\n")
     f.write(f"# duracao total: {hms(dur)} ({dur:.3f}s)\n")

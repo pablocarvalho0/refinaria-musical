@@ -22,7 +22,7 @@ Duas correções que o docs/04 registra como necessárias e que estão aplicadas
     pôr contorno "piora" o número exatamente ao tornar a peça mais legível.
 
 Uso:
-    python scripts/valida-cartela.py out/improviso_3_cover.mp4 \
+    python scripts/valida-cartela.py out/improviso_3/improviso_3_cover.mp4 \
         --cartela work/improviso_3_cover.abertura.png:4.0 \
         --cartela work/improviso_3_cover.creditos.png:56.0
 """

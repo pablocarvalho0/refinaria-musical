@@ -19,8 +19,8 @@ primeira é a que mostra o tamanho do problema que o contorno resolve, e é a
 que denuncia um contorno fino demais para o tamanho da fonte.
 
 Uso:
-    python scripts/valida-legenda.py out/ep00_audio.mp4 out/ep00.16x9.ass
-    python scripts/valida-legenda.py out/ep00_audio.mp4 out/ep00.9x16.ass \
+    python scripts/valida-legenda.py out/ep00/ep00_audio.mp4 out/ep00/ep00.16x9.ass
+    python scripts/valida-legenda.py out/ep00/ep00_audio.mp4 out/ep00/ep00.9x16.ass \
         --vf "crop=608:1080:656:0,scale=1080:1920"
 """
 import argparse

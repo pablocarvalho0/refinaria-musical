@@ -40,14 +40,19 @@ IN="${1:?uso: $0 <arquivo.mp4>}"
 
 BASE=$(basename "$IN"); BASE="${BASE%.*}"
 WORK="$HOME/video/work"
-OUT="$HOME/video/out"
-mkdir -p "$WORK" "$OUT"
+# A saída é por projeto: out/<projeto>/. Um master gera várias entregas
+# (vertical, cover, variantes de cartela) e o nome do arquivo era a única
+# coisa separando uma da outra. Ver "Pasta de saída por projeto" no lib.sh.
+pasta_projeto "$IN"
+OUT="$PROJETO_DIR"
+mkdir -p "$WORK"
 
 # Parâmetros ajustáveis via variável de ambiente
 CRF="${CRF:-23}"        # 18=quase sem perda, 23=padrão, 28=pequeno
 PRESET="${PRESET:-fast}"
 
 echo "==> Fonte: $IN"
+projeto_resumo
 ffprobe -v error -show_entries format=duration:stream=width,height,codec_name \
         -of default=noprint_wrappers=1 "$IN"
 echo

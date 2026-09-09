@@ -11,11 +11,11 @@ violão sunburst, que é onde a legenda já quase falhou (ver docs/04).
 
 Uso:
     python scripts/marca.py logos
-    python scripts/marca.py thumb out/ep00_audio.mp4 --t 12 \
+    python scripts/marca.py thumb out/ep00/ep00_audio.mp4 --t 12 \
         --titulo "Dominante secundária" --sub "o acorde que puxa" --ep 3
-    python scripts/marca.py post out/ep00_audio.mp4 --t 12 --titulo "..."
-    python scripts/marca.py story out/ep00_audio.mp4 --t 12 --titulo "..."
-    python scripts/marca.py tudo out/ep00_audio.mp4 --t 12
+    python scripts/marca.py post out/ep00/ep00_audio.mp4 --t 12 --titulo "..."
+    python scripts/marca.py story out/ep00/ep00_audio.mp4 --t 12 --titulo "..."
+    python scripts/marca.py tudo out/ep00/ep00_audio.mp4 --t 12
 """
 import argparse
 import pathlib

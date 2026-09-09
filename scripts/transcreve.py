@@ -27,6 +27,9 @@ except ImportError:
 
 from faster_whisper import WhisperModel
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from projeto import pasta_episodio, resumo as resumo_projeto
+
 
 MODELOS = pathlib.Path.home() / "video" / "models"
 
@@ -78,8 +81,10 @@ if not wav.exists():
 modelo = resolve_modelo(args.model)
 compute = args.compute_type or compute_padrao(args.model)
 
-out = pathlib.Path.home() / "video" / "out" / f"{wav.stem}.txt"
-out.parent.mkdir(parents=True, exist_ok=True)
+# A transcrição é do episódio, e vai para a pasta dele: um master gera
+# várias entregas, e out/ raso já tinha 40 arquivos de 4 masters.
+print(resumo_projeto(wav, episodio=True))
+out = pasta_episodio(wav) / f"{wav.stem}.txt"
 
 # Sidecar legível por máquina: início, fim e texto de cada segmento, em
 # segundos com casas decimais. O .txt existe para o humano colar no chat e

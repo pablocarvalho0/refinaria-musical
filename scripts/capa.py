@@ -16,12 +16,16 @@ separação mínima no tempo, senão os dez melhores são o mesmo instante dez
 vezes, porque frames vizinhos têm nitidez quase igual.
 
 Uso:
-  python scripts/capa.py video.mp4 --saida out/capas [--n 12] [--largura 540]
+  python scripts/capa.py video.mp4 --saida out/<ep>/capas [--n 12] [--largura 540]
   python scripts/capa.py video.mp4 --trechos 0-2.7,15.4-22.5,46.7-50.7
 """
 import argparse, subprocess, sys
 from pathlib import Path
 import numpy as np
+
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+from projeto import pasta_projeto
 
 # Laplaciano 3x3 (8-vizinhos): realça borda em qualquer direção.
 LAP = np.array([[1, 1, 1], [1, -8, 1], [1, 1, 1]], dtype=np.float32)
@@ -72,7 +76,9 @@ def analisa(video, larg, fps_saida):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
-    ap.add_argument("--saida", default="out/capas")
+    # o default acompanha o vídeo: as capas do episódio ficam com ele
+    ap.add_argument("--saida", default=None,
+                    help="padrão: out/<projeto>/capas")
     ap.add_argument("--n", type=int, default=12, help="quantos candidatos")
     ap.add_argument("--largura", type=int, default=540, help="resolução da análise")
     ap.add_argument("--separacao", type=float, default=1.5,
@@ -118,7 +124,8 @@ def main():
             break
     escolhidos.sort(key=lambda k: t[k])
 
-    saida = Path(a.saida); saida.mkdir(parents=True, exist_ok=True)
+    saida = Path(a.saida) if a.saida else pasta_projeto(a.video) / "capas"
+    saida.mkdir(parents=True, exist_ok=True)
     print(f"\n{'#':>3} {'tempo':>7} {'frame':>6} {'nitidez':>9} {'estourado':>10} {'nota':>6}")
     arquivos = []
     for r, k in enumerate(escolhidos, 1):

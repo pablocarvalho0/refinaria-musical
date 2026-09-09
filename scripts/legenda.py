@@ -8,13 +8,17 @@ palavra (`transcreve.sh --word-timestamps`), reagrupado aqui por regras
 de leitura explícitas.
 
 Uso: python scripts/legenda.py work/ep00.words.tsv \
-         --segmentos out/ep00.segmentos.txt
+         --segmentos out/ep00/ep00.segmentos.txt
 """
 import argparse
 import pathlib
 import re
 import sys
 import tomllib
+
+import sys as _sys
+_sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from projeto import pasta_episodio, resumo as resumo_projeto
 
 # Regras de leitura. Os números seguem a prática de legendagem para vídeo
 # (BBC/Netflix convergem nesta faixa): duas linhas de no máximo ~42
@@ -563,11 +567,11 @@ ap.add_argument("--sombra", type=float, default=None)
 ap.add_argument("--margem", type=int, default=None)
 ap.add_argument("--cortes", default=None,
                 help="cortes.txt do corta.sh; remapeia os tempos para o "
-                     "arquivo cortado e escreve out/<base>_final.*")
+                     "arquivo cortado e escreve <projeto>/<base>_final.*")
 ap.add_argument("--glossario",
                 default=str(pathlib.Path(__file__).parent / "glossario.tsv"),
                 help="tsv de correções; --glossario '' desliga")
-ap.add_argument("--saida", default=None, help="prefixo; padrão out/<base>")
+ap.add_argument("--saida", default=None, help="prefixo; padrão out/<projeto>/<base>")
 args = ap.parse_args()
 
 wt = pathlib.Path(args.words_tsv)
@@ -576,9 +580,12 @@ if not wt.exists():
              f"Gere com: ./scripts/transcreve.sh <wav> --word-timestamps")
 
 base = re.sub(r"\.words$", "", wt.stem)
-prefixo = (pathlib.Path(args.saida) if args.saida
-           else pathlib.Path.home() / "video" / "out" / base)
-prefixo.parent.mkdir(parents=True, exist_ok=True)
+if args.saida:
+    prefixo = pathlib.Path(args.saida)
+    prefixo.parent.mkdir(parents=True, exist_ok=True)
+else:
+    print(resumo_projeto(wt, episodio=True))
+    prefixo = pasta_episodio(wt) / base
 
 palavras = le_palavras(wt)
 n_total = len(palavras)

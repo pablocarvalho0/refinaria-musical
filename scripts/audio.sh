@@ -7,8 +7,8 @@
 #   FALA    highpass 80 Hz + denoise leve + compressão suave + loudnorm I=-14
 #   MUSICA  loudnorm I=-14 com LRA alto — sem denoise, sem compressão
 #
-# Uso: ./audio.sh out/ep00_norm.mp4              (por classe, precisa de segmentos.txt)
-#      ./audio.sh out/ep00_norm.mp4 --uniforme   (classe única, não precisa)
+# Uso: ./audio.sh out/ep00/ep00_norm.mp4              (por classe, precisa de segmentos.txt)
+#      ./audio.sh out/ep00/ep00_norm.mp4 --uniforme   (classe única, não precisa)
 #
 # ---------------------------------------------------------------------
 # Decisões que não são óbvias
@@ -58,8 +58,28 @@ MODO="${2:-}"
 
 ROOT="$HOME/video"
 BASE=$(basename "$VIDEO"); BASE="${BASE%.*}"; BASE="${BASE%_norm}"
-WORK="$ROOT/work"; OUT="$ROOT/out"
-SEG="${SEG:-$WORK/segmentos.txt}"
+WORK="$ROOT/work"
+pasta_projeto "$VIDEO"
+OUT="$PROJETO_DIR"
+projeto_resumo
+
+# O segmentos.txt agora é por episódio, dentro da pasta do projeto. O
+# work/segmentos.txt continua sendo aceito como queda: é o nome antigo,
+# global, e é justamente por ser global que ele saiu — dois masters
+# processados em sequência sobrescreviam um ao outro sem avisar.
+#
+# Numa rodada de teste a busca começa na pasta da rodada — dá para
+# sobrepor o segmentos localmente, se a rodada for justamente sobre isso —
+# e cai na RAIZ do episódio, que é onde o segmenta.py escreve de verdade.
+# Sem esse segundo degrau, todo audio.sh sob RODADA não acharia o arquivo
+# e mandaria usar --uniforme: a cadeia errada, sem erro nenhum.
+if [[ -z "${SEG:-}" ]]; then
+  for _c in "$OUT/${BASE}.segmentos.txt" \
+            "$PROJETO_RAIZ/${BASE}.segmentos.txt" \
+            "$WORK/segmentos.txt"; do
+    SEG="$_c"; [[ -f "$SEG" ]] && break
+  done
+fi
 REF="${REF:-$WORK/${BASE}.wav}"      # wav da transcrição, para conferir alinhamento
 PY="$ROOT/.venv/bin/python"
 [[ -x "$PY" ]] || { echo "venv não encontrado em $PY" >&2; exit 1; }
@@ -71,6 +91,35 @@ if [[ "$UNIFORME" -eq 0 && ! -f "$SEG" ]]; then
   echo "gere com:  python scripts/segmenta.py $WORK/${BASE}.wav" >&2
   echo "ou rode em classe única:  $0 $VIDEO --uniforme" >&2
   exit 1
+fi
+
+# Guarda: o segmentos.txt é deste vídeo?
+#
+# Mascarar com as regiões do episódio errado não dá erro nenhum — sai um
+# arquivo íntegro, com a fala tratada como música e vice-versa, e só se
+# percebe ouvindo. O risco não é teórico: até 05/09 o segmenta.py escrevia
+# em work/segmentos.txt, nome global, e o audio.sh o pegava de olhos
+# fechados. Num teste, um vídeo de 3s casou com o segmentos de 189s de
+# outro episódio sem uma palavra de aviso.
+#
+# A conferência é a duração declarada no cabeçalho contra a do vídeo. É o
+# dado que já está no arquivo — não custa medição nova, e um segmentos de
+# outro episódio quase nunca tem a mesma duração.
+if [[ "$UNIFORME" -eq 0 ]]; then
+  DUR_SEG=$(sed -n 's/^# duracao total:.*(\([0-9.]*\)s)/\1/p' "$SEG" | head -1)
+  DUR_VID=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDEO")
+  if [[ -n "$DUR_SEG" ]] \
+     && ! awk -v a="$DUR_SEG" -v b="$DUR_VID" \
+              'BEGIN{d=a-b; if(d<0)d=-d; exit !(d<=1.0)}'; then
+    echo >&2
+    echo "segmentos.txt não parece ser deste vídeo:" >&2
+    echo "  $SEG declara ${DUR_SEG}s" >&2
+    echo "  $(basename "$VIDEO") tem ${DUR_VID}s" >&2
+    echo "Gere o certo:  python scripts/segmenta.py $WORK/${BASE}.wav" >&2
+    echo "Ou aponte o seu:  SEG=<arquivo> $0 $VIDEO" >&2
+    exit 1
+  fi
+  echo "    segmentos: ${SEG/#$HOME\//~/}  (${DUR_SEG}s ~ ${DUR_VID}s do vídeo)"
 fi
 
 LUFS="${LUFS:--14}"

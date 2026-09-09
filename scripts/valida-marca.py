@@ -12,8 +12,8 @@ véu faz o papel que o contorno faz na legenda: garantir que o fundo pare de
 importar.
 
 Uso:
-    python scripts/valida-marca.py out/improviso_2_audio.mp4 --t 42
-    python scripts/valida-marca.py out/ep00_audio.mp4 --t 12 --titulo "..."
+    python scripts/valida-marca.py out/improviso_2/improviso_2_audio.mp4 --t 42
+    python scripts/valida-marca.py out/ep00/ep00_audio.mp4 --t 12 --titulo "..."
 """
 import argparse
 import pathlib

@@ -73,9 +73,15 @@ export LD_LIBRARY_PATH="$NV/cublas/lib:$NV/cudnn/lib:${LD_LIBRARY_PATH:-}"
 ~/video/
 ├── inbox/      # chega do celular via Syncthing (Receive Only). NÃO editar.
 ├── work/       # intermediários, .wav e .words.tsv. Descartável.
-├── out/        # _norm.mp4 (trabalho: video pronto, audio cru),
-│            # _audio.mp4 e _final.mp4 (entregaveis),
-│            # .txt, .segments.tsv, .segmentos.txt, .srt, .ass
+├── out/
+│   ├── <projeto>/   # UMA PASTA POR EPISÓDIO. Tudo que sai dele mora aqui:
+│   │   │        #   _norm.mp4 (trabalho: video pronto, audio cru),
+│   │   │        #   _audio.mp4 e _final.mp4 (entregaveis),
+│   │   │        #   .txt, .segmentos.txt, .srt, .ass
+│   │   └── testes/<rodada>/   # VARIANTE EM JULGAMENTO, nunca solta acima.
+│   │            #   Uma pasta por rodada de comparação. Descartável.
+│   │            #   Ver "Rodada de teste".
+│   └── marca/       # artes do marca.py. Não é episódio — é a exceção.
 ├── marca/      # tokens da identidade visual. Versionado.
 ├── scripts/    # versionado
 ├── docs/       # registro das decisões de arquitetura. Versionado.
@@ -92,11 +98,20 @@ Os textos derivados da transcrição (`.txt`, `.segments.tsv`, `.segmentos.txt`,
 `.srt`, `.ass`) ficam em `out/`, não em `work/`: são a fonte da verdade do
 episódio, custam alguns KB, e `work/` existe para ser apagado sem pensar.
 
+**A saída é por projeto: `out/<projeto>/`.** Os scripts criam e resolvem a
+pasta sozinhos — ninguém digita o caminho. Ver "Pasta de saída por projeto".
+O `work/` continua raso de propósito: é lixo por design, e organizar lixo é
+trabalho que não paga.
+
 ## Fluxo
 
 **Cada script tem uma responsabilidade só.** O `processa.sh` cuida do vídeo,
 o `audio.sh` cuida do áudio, e eles não se sobrepõem. O `_norm.mp4` é arquivo
 de trabalho — vídeo pronto, áudio ainda cru. O entregável é o `_audio.mp4`.
+
+Abaixo, `<ep>` é o nome do episódio, e é ele que dá nome à pasta de saída.
+Nenhum comando precisa dizer onde escrever: os scripts resolvem `out/<ep>/`
+sozinhos a partir do caminho que recebem.
 
 ```bash
 cd ~/video && source .venv/bin/activate
@@ -107,44 +122,46 @@ cd ~/video && source .venv/bin/activate
 # 1. Vídeo: 4K HEVC -> 1080p60 H.264 (ou 1080x1920, se o master for
 #    vertical). O áudio é copiado, não tratado.
 #    Também extrai o .wav de 16 kHz para a transcrição.
-./scripts/processa.sh ~/video/inbox/<arquivo>.mp4
+#    Cria out/<ep>/ e imprime o projeto que resolveu.
+./scripts/processa.sh ~/video/inbox/<ep>.mp4
 
 # 2. Transcreve (GPU). SEMPRE do .wav do _norm, nunca do áudio tratado.
 #    --word-timestamps grava o sidecar .words.tsv, insumo da legenda.
-./scripts/transcreve.sh ~/video/work/<arquivo>.wav --model large-v3 --word-timestamps
+./scripts/transcreve.sh ~/video/work/<ep>.wav --model large-v3 --word-timestamps
 
 # 3. Classifica fala/música e mede a zona cinzenta
-python scripts/segmenta.py ~/video/work/<arquivo>.wav   # -> work/segmentos.txt
+python scripts/segmenta.py ~/video/work/<ep>.wav   # -> out/<ep>/<ep>.segmentos.txt
 
 # 4. Áudio. Se a zona cinzenta passar de 10%, use --uniforme.
-./scripts/audio.sh ~/video/out/<arquivo>_norm.mp4              # por classe
-./scripts/audio.sh ~/video/out/<arquivo>_norm.mp4 --uniforme   # classe única
+#    Acha o segmentos.txt do episódio sozinho e confere que é dele.
+./scripts/audio.sh ~/video/out/<ep>/<ep>_norm.mp4              # por classe
+./scripts/audio.sh ~/video/out/<ep>/<ep>_norm.mp4 --uniforme   # classe única
 
 # 5. Legenda: reagrupa as palavras em cues e aplica o glossário.
 #    O .srt é único e sobe separado no YouTube. O .ass carrega a aparência,
 #    então sai um por formato, com o estilo vindo de marca/tokens.toml.
-python scripts/legenda.py ~/video/work/<arquivo>.words.tsv \
-    --segmentos ~/video/out/<arquivo>.segmentos.txt              # -> .16x9.ass
-python scripts/legenda.py ~/video/work/<arquivo>.words.tsv \
-    --segmentos ~/video/out/<arquivo>.segmentos.txt --formato 9x16   # -> .9x16.ass
+python scripts/legenda.py ~/video/work/<ep>.words.tsv \
+    --segmentos ~/video/out/<ep>/<ep>.segmentos.txt              # -> .16x9.ass
+python scripts/legenda.py ~/video/work/<ep>.words.tsv \
+    --segmentos ~/video/out/<ep>/<ep>.segmentos.txt --formato 9x16   # -> .9x16.ass
 
 # 5b. Confere que a legenda é legível sobre o vídeo real, não sobre um cinza
-python scripts/valida-legenda.py ~/video/out/<arquivo>_audio.mp4 \
-    ~/video/out/<arquivo>.16x9.ass
+python scripts/valida-legenda.py ~/video/out/<ep>/<ep>_audio.mp4 \
+    ~/video/out/<ep>/<ep>.16x9.ass
 
 # 6. Humano cola a transcrição no chat -> recebe cortes.txt e as
 #    correções de texto novas (que viram linhas do glossario.tsv)
 
 # 7. Aplica os cortes ao entregável
-./scripts/corta.sh ~/video/out/<arquivo>_audio.mp4 ~/video/work/cortes.txt
+./scripts/corta.sh ~/video/out/<ep>/<ep>_audio.mp4 ~/video/work/cortes.txt
 
 # Queimar a legenda (só no vertical; no YouTube o .srt sobe separado):
-ffmpeg -i <entrada>.mp4 -vf "ass=out/<arquivo>.9x16.ass" \
+ffmpeg -i <entrada>.mp4 -vf "ass=out/<ep>/<ep>.9x16.ass" \
     -c:v libx264 -crf 20 -preset fast -pix_fmt yuv420p -r 60 \
     -c:a copy -metadata:s:a:0 language=por <saida>.mp4
 
 # Medir loudness de qualquer arquivo, separando fala de música:
-./scripts/mede-audio.sh <arquivo> ~/video/work/segmentos.txt
+./scripts/mede-audio.sh <arquivo> ~/video/out/<ep>/<ep>.segmentos.txt
 ```
 
 ### Quem faz o quê — combinado em 30/08/2026
@@ -177,6 +194,180 @@ Formato do `cortes.txt` — trechos a **MANTER**, um por linha:
 00:00:04  00:00:12
 00:00:23  00:03:09
 ```
+
+## Pasta de saída por projeto — 05/09/2026
+
+**Cada episódio tem uma pasta em `out/`, e tudo que ele gera mora lá.**
+
+O `out/` raso não escalou. Em 05/09 ele tinha 41 arquivos de 4 masters, e o
+`improviso_4` sozinho respondia por 9 deles — `_v`, `_vg`, `.v1`, `.v2`,
+`.v3`, mais os `_norm`, `_audio` e `_final` de cada. O mesmo vídeo gera
+cortes diferentes e testes de dinâmica distintos, e o **nome do arquivo era
+a única coisa separando um do outro**. O modo de falha é o mesmo já
+registrado para os dois entregáveis da v2 do `processa.sh`: publicar o
+errado é silencioso, só se percebe assistindo.
+
+Depois: 5 pastas, entre 1 e 11 arquivos cada.
+
+### Um nível, não dois
+
+A tentação era `out/<ep>/<entrega>/`. Não cabe: a transcrição, o `.srt` e o
+`segmentos.txt` são do **episódio inteiro**, não de uma entrega, e num
+segundo nível não teriam onde morar. Os sufixos que já existem (`_v`,
+`_cover`, `.v1`) distinguem a entrega dentro da pasta, de graça.
+
+### Quem resolve a pasta é o script, não quem digita
+
+`projeto_de`, no `lib.sh`, com espelho em `scripts/projeto.py`. Quatro
+degraus, do mais explícito ao mais adivinhado:
+
+1. `$PROJETO`, se setado — o escape hatch, como `ORIENTACAO`;
+2. o caminho já está sob `out/<X>/` → `X`. Cobre todo o meio do fluxo:
+   `audio.sh`, `corta.sh` e `legenda.py` recebem o que o passo anterior
+   já pôs na pasta certa;
+3. a maior pasta de `out/` que prefixa o basename. É o que faz
+   `work/improviso_4_v.wav` voltar para `out/improviso_4/` — e é por isso
+   que **o `work/` não precisou mudar de forma**;
+4. o basename sem extensão e sem sufixo de etapa. Só sobra para a primeira
+   execução, com o master vindo do `inbox`, onde o nome está limpo.
+
+Nenhum deles é silencioso: todo script imprime `==> Projeto: <nome> (por
+<degrau>)` antes de escrever. Escrever na pasta errada é exatamente o tipo
+de erro que só aparece três passos depois.
+
+**O degrau 4 precisou aprender os sufixos com ponto.** Sem eles,
+`ep00.16x9.ass` abria uma pasta `out/ep00.16x9/` — apareceu no plano de
+migração, antes de qualquer arquivo se mover. Hoje o degrau tira `_norm`,
+`_audio`, `_final`, `_legendado`, `_work48`, `.16x9`, `.9x16`, `.words`,
+`.segments`, `.segmentos` e `.v<N>`, em laço até estabilizar.
+
+**A regra está escrita duas vezes** porque metade do pipeline é shell e
+obrigar o `processa.sh` a subir um interpretador só para saber onde
+escrever seria pior. O que sustenta o espelho não é disciplina:
+`./scripts/testa-projeto.sh` roda os dois lados sobre 16 casos e falha se
+discordarem em um só.
+
+### O `work/segmentos.txt` era um nome global, e isso mordia
+
+O `segmenta.py` escrevia sempre em `work/segmentos.txt` — sem o nome do
+episódio. Processar dois masters em sequência fazia o segundo sobrescrever
+o primeiro **em silêncio**, e o `audio.sh` do primeiro passava a mascarar
+com as regiões do segundo: fala tratada como música e vice-versa, arquivo
+íntegro, nenhum erro. Agora sai em `out/<ep>/<ep>.segmentos.txt`.
+
+O nome antigo continua sendo aceito como queda, para os episódios que já o
+têm — mas o `audio.sh` ganhou uma guarda: **compara a duração declarada no
+cabeçalho do `segmentos.txt` com a do vídeo** e recusa acima de 1s de
+diferença. Não custa medição nova, o número já está no arquivo. Medido:
+
+| episódio | segmentos | vídeo | delta |
+|---|---|---|---|
+| ep00 | 189,616s | 189,617s | **0,001s** |
+| improviso_2 | 289,355s | 289,367s | **0,012s** |
+| improviso_3 | 101,696s | 101,700s | **0,004s** |
+
+12 ms no pior caso contra 1s de tolerância — a margem é de duas ordens de
+grandeza, então a guarda não vai dar falso positivo. E ela pegou o caso
+real: um vídeo de teste de 3s casou com o `work/segmentos.txt` de 101,696s
+do `improviso_3` sem uma palavra de aviso, antes da guarda existir.
+
+### Regressão: zero
+
+O `ep00` regerado pelo `legenda.py` novo sai **byte a byte igual** ao da
+versão do `HEAD` rodada sobre o mesmo `words.tsv`, em `.srt` e em `.ass`.
+(Ele difere do arquivo que estava em `out/` desde 30/08, mas essa diferença
+é do commit `23514b6` — a correção do gap que saía da palavra —, que nunca
+tinha sido reaplicada ao episódio. A regeneração aplicou.)
+
+Migrados 41 arquivos, 1.627.661.014 bytes antes e depois.
+
+### O que ficou de fora
+
+- **`work/` continua raso**, de propósito. É descartável por definição, e o
+  degrau 3 faz o nome dele voltar para a pasta certa sem que ele mude.
+- **`out/marca/`** não é episódio: são as artes do `marca.py`. É a única
+  pasta de `out/` que não segue a regra, e fica registrado aqui para
+  ninguém tentar "consertar".
+
+## Rodada de teste — 05/09/2026
+
+**Arquivo que existe para ser julgado mora em `out/<ep>/testes/<rodada>/`,
+nunca solto na pasta do episódio.**
+
+A pasta por projeto resolveu o `out/` raso e não resolveu o que acontece
+dentro dela quando se compara variantes. Medido no mesmo dia: uma única
+rodada de quatro opções do `improviso_4` pôs **dez arquivos** em
+`out/improviso_4/` — seis intermediários (`_a_`, `_b_`, `_c_`, em `_norm` e
+`_audio`) e quatro montagens —, ao lado do corte aprovado. É a falha dos 41
+arquivos outra vez, um nível abaixo: **o nome do arquivo voltou a ser a
+única coisa separando o que se publica do que ainda se está julgando**, e
+publicar o errado continua sendo silencioso.
+
+Depois: `out/improviso_4/` com 2 arquivos — o corte aprovado e o `.txt` do
+episódio — e duas rodadas, de 6 e 10.
+
+### Isto NÃO reabre o "um nível, não dois"
+
+Lá o que se recusou foi uma pasta por **entrega**, e o argumento era que a
+transcrição, o `.srt` e o `segmentos.txt` são do episódio inteiro e num
+segundo nível não teriam onde morar. Esse argumento continua de pé e é
+justamente ele que desenha a regra aqui: a pasta é por **rodada de teste**,
+e o que vai nela é exatamente o material que **não** é do episódio inteiro
+— render descartável, que existe para ser comparado e depois apagado.
+
+### `RODADA=<slug>`, como `PROJETO=` e `ORIENTACAO=`
+
+Quem resolve a pasta continua sendo o script, não quem digita — uma
+convenção que exigisse digitar caminho seria violada na segunda semana.
+
+```bash
+RODADA=2026-09-05-dinamismo ./scripts/vertical.sh inbox/improviso_4.mp4 ...
+```
+
+Todo script imprime, antes de escrever, `Rodada de teste: <slug> — NÃO é
+entregável`, pelo mesmo motivo que já imprime o degrau do projeto.
+
+**São duas variáveis, e confundi-las é o modo de falha:**
+
+| | é |
+|---|---|
+| `PROJETO_RAIZ` | `out/<ep>/`. Quem **procura** insumo procura aqui, com ou sem rodada. |
+| `PROJETO_DIR` | onde **esta execução** escreve: a raiz, ou a pasta da rodada. |
+
+O `audio.sh` procura o `segmentos.txt` na rodada, depois na raiz do
+episódio, depois no `work/`. Sem o segundo degrau, **todo `audio.sh` sob
+rodada não acharia o arquivo e mandaria usar `--uniforme`** — a cadeia
+errada, sem erro nenhum, que é o modo de falha que a guarda de duração já
+existe para pegar. Testado no `ep00`: sob rodada ele achou
+`out/ep00/ep00.segmentos.txt` e escreveu em
+`out/ep00/testes/<rodada>/ep00_audio.mp4`, sem tocar no entregável.
+
+**Texto do episódio ignora a rodada.** `transcreve.py`, `segmenta.py` e
+`legenda.py` chamam `pasta_episodio`, não `pasta_projeto`: a transcrição, o
+`.segmentos.txt`, o `.srt` e o `.ass` são iguais para todas as variantes que
+se compara, e se seguissem a rodada cada rodada teria a sua cópia e a
+seguinte não acharia a anterior. Eles anunciam isso — `Rodada X não vale
+aqui: texto é do episódio` —, porque **rodada que não vale em algum lugar
+tem de dizer que não vale**.
+
+O slug aceita só `[A-Za-z0-9._-]`; barra e `..` são recusados nos dois
+espelhos, senão um `RODADA=../fuga` escreveria fora da pasta do episódio.
+A convenção é `AAAA-MM-DD-assunto`, que ordena sozinho.
+
+### Promover é mover, e apagar é apagar uma pasta
+
+Variante aprovada sobe para `out/<ep>/` com nome de entregável, e a rodada
+inteira pode ir embora. É a mesma economia da saída por projeto: arquivar e
+limpar são um `mv` e um `rm -r`, não uma triagem por nome de arquivo.
+
+### O teste cresceu junto
+
+A regra continua escrita duas vezes (`lib.sh` e `scripts/projeto.py`), e
+agora ela decide **duas** coisas — o nome do projeto e a pasta de escrita —,
+ou seja, há duas maneiras de os espelhos divergirem. O
+`./scripts/testa-projeto.sh` passou a conferir 18 casos de nome mais quatro
+de pasta: com rodada, sem rodada, a raiz do episódio que não se move, e os
+slugs recusados.
 
 ## Decisões tomadas — não reabrir sem motivo novo
 
@@ -1070,7 +1261,18 @@ O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
   Sugestões novas devem vir com forma de medir.
 - **Não sugerir subir mídia** para nenhum serviço ou para o chat.
 - **Disco é o recurso apertado.** ~25 GB livres em 30/08/2026. Um episódio de 20 min em 4K60 dá ~7 GB de
-  master. Limpar `work/` após aprovar, arquivar masters após publicar.
+  master. Limpar `work/` após aprovar, arquivar masters após publicar. Com a
+  saída por projeto, arquivar é mover uma pasta — `out/<ep>/` inteira. A
+  primeira coisa a apagar é `out/<ep>/testes/`: são as variantes recusadas,
+  e uma rodada de quatro opções custou 376 MB.
+- **Script que escreve em `out/` chama `pasta_projeto` do `lib.sh`**, nunca
+  monta o caminho na mão. Em Python é `pasta_projeto` do `scripts/projeto.py`,
+  e `pasta_episodio` quando o que se escreve é texto do episódio inteiro.
+  Depois de mexer em qualquer um dos dois, rodar `./scripts/testa-projeto.sh`:
+  a regra vive nos dois arquivos e o teste é o que impede que divirjam.
+- **Comparar variantes é sempre com `RODADA=<slug>`.** Render de teste não
+  encosta em `out/<ep>/` — vai para `out/<ep>/testes/<rodada>/`, e sobe para
+  a raiz só quando for aprovado. Ver "Rodada de teste".
 - **Fase 0 é publicar, não perfeição.** Se algo estiver bloqueando por mais de uma
   tentativa, usar o caminho lento e seguir (ex: CPU em vez de GPU).
 - **Se a IDE ou o terminal fechar sozinho durante um trabalho pesado, é OOM até prova
