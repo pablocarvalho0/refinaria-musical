@@ -260,3 +260,27 @@ tamanho_nome = 66
 tamanho_handle = 28
 etiqueta_tracking = 3
 fio_largura = 2          # o fio fino que separa a obra de quem a executou
+
+
+# ---------------------------------------------------------------------------
+# Vertical por empilhamento — scripts/vertical.sh
+#
+# Consumidor: scripts/vertical.sh, que transforma um master horizontal de duas
+# pessoas em 9:16 recortando duas metades e as empilhando. Medido em
+# 05/09/2026: nenhum corte 9:16 cabe as duas, e a banda com fundo borrado
+# deixa a imagem útil em 32% da altura. Ver "Vertical a partir de master
+# horizontal" no CLAUDE.md.
+# ---------------------------------------------------------------------------
+
+[empilhado]
+# O plano geral abre o vídeo e depois o quadro se divide. Meio segundo de
+# fundido é o que separa "a câmera mudou" de "corte seco": abaixo disso lê
+# como corte, acima começa a arrastar. Vale para o improviso_4; se um
+# episódio pedir outro tempo, muda aqui.
+transicao = 0.50
+
+# Quanto dura o afastamento do plano fechado para o plano geral. 1,2s é o
+# que separa "a câmera se afastou" de "cortaram": abaixo de ~0,8s o olho lê
+# como corte, acima de ~1,6s o movimento começa a chamar mais atenção que a
+# música. A curva é smoothstep — ver scripts/zoom-cmds.py.
+zoom = 1.20

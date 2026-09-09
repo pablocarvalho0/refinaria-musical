@@ -1230,6 +1230,185 @@ caso em que não há o que achar: o `grep` retorna 1, o `pipefail`
 propaga, o `set -e` aborta. O sintoma foi o `processa.sh` terminando
 mudo depois da linha do áudio, sem erro visível. Fechar com `|| true`.
 
+## Vertical a partir de master horizontal — medido em 05/09/2026
+
+O `processa.sh` resolve a orientação do master; ele não resolve o caso em que
+o master é horizontal e o entregável precisa ser vertical. É o do `improviso_4`
+(8K, 45,4s): plano aberto com **duas pessoas** — violão à direita, bateria à
+esquerda. Um corte 9:16 guarda 31,6% da largura, e as duas ocupam a largura
+inteira em todos os frames sondados.
+
+Três enquadramentos renderizados do mesmo frame (t=40s) e olhados na tela:
+
+| enquadramento | o que dá |
+|---|---|
+| corte central 9:16 | não pega ninguém: parede, um prato e um pedaço de braço |
+| banda 1080x608 + fundo borrado | pega as duas, mas a imagem útil fica em 32% da altura; o resto é borrão preto em cima e laranja embaixo |
+| **empilhado, 1080x960 + 1080x960** | **as duas em tamanho grande, tela cheia, sem borrão** |
+
+`scripts/vertical.sh` faz o empilhado: dois recortes de metade da largura,
+na proporção 9:8 por construção, um sobre o outro. Só é honesto porque a
+fonte é 8K — cada painel vem de um recorte de 3840x3412, ou seja, ainda é
+**redução**, nunca ampliação. Num master 4K o mesmo corte seria 1920x1706 →
+1080x960, também redução; abaixo disso, não.
+
+Ele segue o contrato do `processa.sh` de propósito — vídeo pronto, áudio
+**copiado** e o `.wav` de 16 kHz — para que `transcreve.sh`, `segmenta.py`,
+`audio.sh` e as cartelas rodem por cima sem adaptação nenhuma.
+
+**O `split` aqui é seguro, e vale saber por quê.** É o mesmo padrão que
+derrubou a IDE em 30/08, mas com um consumidor diferente: o `vstack` drena os
+dois ramos em travamento, um frame de cada por vez, então nenhuma fila cresce.
+O que estourava era `trim`+`concat`, em que um ramo esperava minutos pelo
+outro. Medido: 1m40s de encode, sem chegar perto do teto do `ffmpeg_lim`.
+
+`--topo-y` e `--base-y` são os dois únicos números que dependem da câmera —
+onde a cabeça é cortada. Neste episódio, 150 no topo e 600 na base.
+
+**A divisão precisa de um plano geral antes.** Visto na tela em 05/09/2026: o
+empilhado sozinho não diz que os dois estão no mesmo cômodo — os painéis lêem
+como duas gravações separadas montadas lado a lado. Com os primeiros segundos
+no quadro inteiro do master, ajustado à largura e com tarja preta, a divisão
+passa a ler como o que é: um take só, que abre. É o `--geral SEGUNDOS`, e a
+duração do fundido é `empilhado.transicao` nos tokens.
+
+**O fundido é overlay com alfa, não `xfade`.** O `xfade` precisa segurar um
+dos lados em buffer, e aqui os dois lados saem do mesmo `split` — é a receita
+exata da fila que estourou a memória em 30/08. Com `overlay` + `fade` de alfa,
+o `overlay` drena os dois ramos em travamento e nada se acumula. Medido:
+1m19s de encode com três ramos de 8K, sem chegar perto do teto do `ffmpeg_lim`.
+
+**Quem vai em cima é decisão de conteúdo.** No `improviso_4` é o violão, com
+`--troca`: é o instrumento que o canal é sobre, e é o que a piada da abertura
+promete. Trocar de painel troca também os deslocamentos — eles são do
+recorte, não da pessoa.
+
+### O zoom-out do plano fechado — 05/09/2026
+
+`--fechado SEGUNDOS --fechado-x PX` põe um terceiro ato na frente: o 9:16
+mais apertado que o master permite, tela cheia, que depois **afasta** até o
+plano geral. A ordem final é fechado → geral → empilhado, e cada transição
+diz uma coisa: o afastamento apresenta a sala, a divisão apresenta os dois.
+
+**Nenhum filtro de zoom deste ffmpeg serve, e vale saber por quê antes de
+tentar de novo:**
+
+| | por que não |
+|---|---|
+| `crop` | reavalia só `x` e `y` por frame; `w`/`h` são resolvidos uma vez, na configuração. Desloca a janela, não a abre. (`eval` nem existe como opção aqui — 6.1.1 devolve `Option not found`.) |
+| `zoompan` | só sabe **aproximar**: `z` tem piso em 1. Para afastar seria preciso alimentá-lo com a tela larga já pronta, e aí o plano fechado sairia de uma ampliação de 3,2x de um quadro de 1080 px |
+
+O que funciona é `scale`, cujos `w`/`h` são ajustáveis em runtime (o flag `T`
+em `ffmpeg -h filter=scale`). `scripts/zoom-cmds.py` gera um comando por
+frame do master e o `sendcmd` os aplica. **Cada frame continua sendo uma
+redução direta do 8K** — em nenhum instante se amplia algo já reduzido.
+
+**O recentramento se prende à escala, não ao relógio.** A expressão de `x`
+do `overlay` lê `overlay_w`, que é a largura que o `sendcmd` acabou de
+aplicar; assim o pan e o zoom não têm como sair de fase, nem que um comando
+se perca. A curva é smoothstep (3p²−2p³): zoom que começa e termina na
+velocidade máxima lê como corte mal feito.
+
+O ato fechado usa a **janela mais apertada que existe** — largura =
+altura × 9/16, ou 2430 px neste master. Mais fechado que isso só ampliando.
+`--fechado-x` é o centro horizontal dessa janela, em pixels do master: 5200
+no `improviso_4`, que é onde o violão fica nos primeiros sete segundos.
+
+## Resolução de entrega — 08/09/2026
+
+**O entregável sai na maior resolução que o master sustente por REDUÇÃO.**
+Não é a resolução do formato: é a que a fonte aguenta sem ampliar nada.
+
+O `improviso_4` subiu ao YouTube em 1080x1920 vindo de um master **8K**
+(7680x4320, 80,1 Mbps HEVC). O `vertical.sh` tinha `1080` e `960` escritos
+em dez lugares, e nenhum deles era decisão — era o número que estava lá
+quando o script nasceu. O que se jogou fora:
+
+| | master | entregue | descartado |
+|---|---|---|---|
+| pixels por frame | 33,2 M | 2,07 M | **94%** |
+| bitrate | 80,1 Mbps | 6,2 Mbps | — |
+
+**O custo não é só do arquivo: é do que o YouTube devolve.** Acima de 1440p
+a plataforma entrega VP9/AV1 com bitrate alto; em 1080p fica no H.264 magro.
+Então subir 1080p paga duas vezes — uma na redução, outra na recodificação
+que a plataforma faz por cima. Num Short de violão isso cai justamente no
+detalhe de corda e no ataque da baqueta, que é o que o vídeo tem para
+mostrar.
+
+### O teste que decide a resolução é "isto ainda é redução?"
+
+Não é "cabe no disco" nem "o formato pede tanto". Para o `improviso_4` em
+2160x3840, as três cadeias fecham como redução, então 4K é honesto:
+
+| etapa | recorte no master | saída 4K | fator |
+|---|---|---|---|
+| painel empilhado | 3840x3412 | 2160x1920 | 0,563 |
+| plano fechado (janela 9:16 mais apertada) | 2430x4320 | 2160x3840 | 0,889 |
+| plano geral | 7680 de largura | 2160 | 0,281 |
+
+O plano fechado é o que manda: ele usa a janela mais apertada que existe
+(largura = altura x 9/16), e é ali que o fator chega mais perto de 1. Num
+master 4K essa mesma conta daria 1,78 — **ampliação** —, e aí o teto de
+entrega cai. **A conta é por etapa, não pelo master:** basta uma etapa
+ampliando para a resolução escolhida estar errada.
+
+### Quem calcula a resolução é o script
+
+`vertical.sh` não tem mais número de saída escrito: `RESOLUCAO=` força (como
+`ORIENTACAO=` e `PROJETO=`), e sem ela o script escolhe o maior degrau de
+`DEGRAUS=(1080 1440 2160 2880 4320)` que caiba sob o teto. Ele imprime qual
+etapa o limitou, antes de encodar:
+
+```
+==> Saída: 2160x3840  (teto 2430 px por janela 9:16 mais apertada (plano fechado/destaque))
+```
+
+**O teto olha as etapas que a execução usa, não as que o script sabe fazer.**
+Medido nos quatro casos:
+
+| master | com `--fechado`? | teto | saída |
+|---|---|---|---|
+| 8K (7680x4320) | sim | 2430 (janela) | **2160x3840** |
+| 8K | não | 3840 (metade) | **2880x5120** |
+| 4K (3840x2160) | sim | 1215 (janela) | **1080x1920** |
+| 4K | não | 1920 (metade) | **1440x2560** |
+
+A terceira linha é a regressão que importa: onde o `1080` fixo estava certo,
+a saída não mudou. E o filtro do `improviso_4` em 2160 sai **byte a byte
+igual** ao que foi publicado.
+
+`RESOLUCAO=` acima do teto não é bloqueado — só avisado, porque quem força
+sabe o que quer. O aviso diz qual etapa vai ampliar.
+
+### Cartela acompanha, e não por escala
+
+Cartela gerada em 1080x1920 e escalada 2x para um vídeo 4K entra com texto
+borrado — e aí o ganho do render some na única parte do quadro que é
+tipografia pura. As cartelas se regeram em 2160x3840 **nativo**, dobrando
+nos tokens só o que é medida em pixel (`largura`, `altura`, `tamanho`,
+`contorno`, `sombra`, margens, `barra_largura`, `barra_gap`, `scrim_rampa`,
+`scrim_folga` e os `tamanho_*` de cada cartela). Tempo, alfa e múltiplos
+ficam como estão: dobrar `duracao` ou `entrelinha` mudaria a montagem, não
+a resolução.
+
+Isso virou `tokens(largura=)` no `cartelas.py` e `--largura` no
+`cartelas_improviso.py`. Sem argumento, tudo se comporta como antes — o
+`ep00` e as cartelas de 05/09 saem **byte a byte iguais**, e as de 2160
+saem idênticas às que foram ao ar. O `--abertura-ate` também deixou de ser
+número digitado à mão: é o "reveal", e quer cair num tempo forte medido
+pelo `grade-musical.py --encaixa`.
+
+### O modo de falha, outra vez, foi mudo
+
+Ninguém viu erro nenhum. O encode saiu com código 0, o arquivo abriu, subiu
+e tocou. É a mesma família do `scale=1920:1080` fixo que esmagava vertical
+(ver "Orientação do master") e do `out/` raso em que o nome do arquivo era a
+única coisa separando o entregável do teste: **o pipeline entrega algo
+plausível e a perda só aparece assistindo.** Quem viu primeiro foi o autor,
+na tela — de novo antes de haver número.
+
+
 ## Pendências conhecidas
 
 - [x] ~~Áudio saindo a 96 kHz~~ — resolvido com `-ar 48000` na saída de áudio de
@@ -1367,6 +1546,11 @@ O Whisper erra vocabulário técnico. Termos a vigiar e corrigir:
   escalar para outra distorce sem erro nenhum, e rosto espremido não salta aos
   olhos numa miniatura. `scale=...:force_original_aspect_ratio=increase`
   seguido de `crop` mantém a proporção por construção.
+- **A resolução de entrega se decide pela fonte, não pelo formato.** Antes de
+  renderizar, faça a conta de cada etapa: se todas ainda forem redução, suba
+  a resolução até onde a mais apertada permitir. Master 8K entrega 4K; master
+  4K, com plano fechado, não. Cartela e legenda acompanham em pixel nativo,
+  nunca escaladas. Ver "Resolução de entrega".
 - **ffmpeg novo passa pelo `ffmpeg_lim` do `scripts/lib.sh`**, não pelo `ffmpeg` direto,
   sempre que processar arquivo inteiro. E desconfiar de grafo que reusa a mesma entrada
   em vários ramos: é o padrão que enfileira frames decodificados até estourar.
