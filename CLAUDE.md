@@ -1090,6 +1090,34 @@ Três scripts novos, todos em `scripts/` porque servem qualquer episódio:
 `youtube.py` (metadados pela Data API v3), `capa.py` (acha os frames que
 merecem virar capa) e `capa_arte.py` (monta a arte da capa).
 
+### O upload entrou no script em 08/09/2026
+
+Ele ficava de fora de propósito, com o argumento de que o Studio dava barra
+de progresso e retomada. O argumento caiu: upload resumível com callback dá
+as duas coisas, e num Short de algumas dezenas de MB a retomada nunca chega
+a ser exercida.
+
+```bash
+python scripts/youtube.py sobe video.mp4 meta.txt        # entra PRIVADO
+python scripts/youtube.py sobe video.mp4 --como-o <ID>   # copia o texto de outro
+python scripts/youtube.py exclui <ID> --sim              # irreversível
+```
+
+**`--como-o` existe por um motivo específico:** o texto costuma ser editado
+no Studio depois de publicado, e redigitá-lo na hora de subir uma versão
+nova é exatamente onde a versão boa se perde. Ele lê o `snippet` do vídeo
+que já está no ar e reusa título, descrição, tags e idioma.
+
+**`sobe` entra sempre privado**, e `selfDeclaredMadeForKids: False` vai
+explícito no envio — o default chega ligado sem avisar, que foi o que
+aconteceu no `like-a-stone`. Subir e publicar continuam sendo ações
+diferentes, e só uma delas é irreversível.
+
+**`exclui` pede `--sim` e imprime o que vai apagar antes de apagar** —
+título, visibilidade e a resolução da fonte. O alvo é um ID de onze
+caracteres e dois IDs do mesmo episódio não se distinguem no olho; a
+resolução impressa é o que deixa óbvio qual dos dois é o velho.
+
 ### A separação que importa: escrever metadado não é publicar
 
 `youtube.py aplica` mexe só na parte `snippet`. Mudar visibilidade é o

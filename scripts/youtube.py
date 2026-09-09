@@ -6,7 +6,8 @@ que já está no disco. Digitar isso no Studio a cada episódio é tarefa
 determinística — e o princípio 3 do ~/video/CLAUDE.md diz que tarefa
 determinística vira script.
 
-O QUE ESTE SCRIPT NÃO FAZ SOZINHO: publicar. Mudar a visibilidade é um
+O QUE ESTE SCRIPT NÃO FAZ SOZINHO: publicar. Ele SOBE (sempre privado),
+mas mudar a visibilidade é um
 subcomando separado (`publica`), com confirmação, porque é a única ação aqui
 que não dá para desfazer — vídeo que ficou público por 30 segundos pode ter
 sido visto, indexado e notificado a inscritos.
@@ -16,6 +17,7 @@ Nada de credencial é impresso, nem em erro.
 
 --- ordem de uso ---------------------------------------------------------
   python scripts/youtube.py autoriza          # uma vez; abre o navegador
+  python scripts/youtube.py sobe video.mp4 meta.txt      # entra PRIVADO
   python scripts/youtube.py lista             # acha o ID do rascunho
   python scripts/youtube.py aplica ID meta.txt --seco    # mostra sem enviar
   python scripts/youtube.py aplica ID meta.txt
@@ -32,10 +34,8 @@ Nada de credencial é impresso, nem em erro.
   (tudo daqui para baixo é a descrição, com quebras de linha preservadas)
 
 --- custo de cota --------------------------------------------------------
-  lista 1 unidade · aplica 50 · capa 50 · publica 50. A cota diária padrão é
-  10.000, então isso é irrelevante — só o upload (1600) pesaria, e o upload
-  não está aqui de propósito: subir pelo Studio dá barra de progresso e
-  retomada, que a API não dá.
+  lista 1 · aplica 50 · capa 50 · publica 50 · exclui 50 · sobe 1600, contra
+  10.000 por dia. Só o upload pesa, e ainda assim cabem seis por dia.
 """
 import argparse, json, os, sys
 from pathlib import Path
@@ -127,6 +127,127 @@ def cmd_lista(a):
         print(f'{v["id"]:13s} {st["privacyStatus"]:10s} '
               f'{v["contentDetails"]["duration"].replace("PT",""):9s} '
               f'{s["publishedAt"][:10]:11s} {s["title"][:52]}')
+
+
+# ------------------------------------------------------------------- sobe
+# O upload ficou FORA deste script até 08/09/2026, com o argumento de que o
+# Studio dá barra de progresso e retomada, que a API não daria. Dois fatos
+# derrubaram isso: upload resumível com callback dá as duas coisas — é o que
+# está aqui —, e num Short de algumas dezenas de MB a retomada nunca chega a
+# ser exercida.
+#
+# O que NÃO mudou: sobe sempre PRIVADO. Ir a público continua sendo
+# `publica`, com --sim. Subir e publicar são ações diferentes e só uma delas
+# é irreversível.
+#
+# `selfDeclaredMadeForKids: False` vai explícito. O default chega ligado sem
+# avisar — foi o que aconteceu no like-a-stone — e vídeo marcado como
+# infantil perde comentário, notificação, playlist, telas finais e cards.
+#
+# Cota: 1600 unidades contra 10.000/dia, ou seis uploads por dia.
+CHUNK = 8 * 1024 * 1024
+
+
+def cmd_sobe(a):
+    from googleapiclient.http import MediaFileUpload
+    p = Path(a.arquivo)
+    if not p.exists():
+        morre(f"não achei {p}")
+
+    if a.como_o:
+        # Reaproveita o snippet de um vídeo que já está no ar. Existe porque
+        # o texto costuma ser editado no Studio depois de publicado, e
+        # redigitá-lo aqui é exatamente onde a versão boa se perde.
+        y = servico()
+        it = y.videos().list(part="snippet", id=a.como_o).execute().get("items")
+        if not it:
+            morre(f"vídeo {a.como_o} não encontrado nesta conta.")
+        s = it[0]["snippet"]
+        m = {"titulo": s["title"], "descricao": s.get("description", ""),
+             "tags": s.get("tags", []), "categoria": s.get("categoryId", "10"),
+             "idioma": s.get("defaultLanguage"),
+             "idioma_audio": s.get("defaultAudioLanguage")}
+        print(f"metadados copiados de {a.como_o}")
+    else:
+        if not a.meta:
+            morre("informe um arquivo de metadados, ou --como-o <ID> para "
+                  "copiar os de um vídeo que já está no ar")
+        m = le_meta(a.meta)
+        y = None
+    for e in confere_limites(m):
+        morre(e)
+
+    corpo = {
+        "snippet": {"title": m["titulo"], "description": m["descricao"],
+                    "tags": m["tags"], "categoryId": m.get("categoria", "10")},
+        "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False,
+                   "license": "youtube", "embeddable": True},
+    }
+    for chave, campo in (("idioma", "defaultLanguage"),
+                         ("idioma_audio", "defaultAudioLanguage")):
+        if m.get(chave):
+            corpo["snippet"][campo] = m[chave]
+
+    mb = p.stat().st_size / 1048576
+    print(f"arquivo    {p.name}  ({mb:.1f} MB)")
+    print(f'título     {m["titulo"]}')
+    print(f'tags       {", ".join(m["tags"]) or "—"}')
+    print(f'categoria  {corpo["snippet"]["categoryId"]}   '
+          f'idioma {corpo["snippet"].get("defaultLanguage", "—")}')
+    print(f'descrição  {len(m["descricao"])} caracteres')
+    print("visibilidade  private   ·   feito para crianças  False")
+    if a.seco:
+        print("\n--- descrição que seria enviada ---")
+        print(m["descricao"])
+        print("\n(seco: nada foi enviado)")
+        return
+
+    y = y or servico()
+    req = y.videos().insert(
+        part="snippet,status", body=corpo,
+        media_body=MediaFileUpload(str(p), chunksize=CHUNK, resumable=True))
+    print()
+    resp = None
+    while resp is None:
+        estado, resp = req.next_chunk()
+        if estado:
+            print(f"\r  enviando… {int(estado.progress() * 100):3d}%",
+                  end="", flush=True)
+    print("\r  enviando… 100%")
+    vid = resp["id"]
+    print(f'\nsubiu como PRIVADO:  {vid}')
+    print(f"  https://youtu.be/{vid}")
+    print(f'  processamento: {resp["status"].get("uploadStatus")}')
+    print("\nDepois:")
+    print(f"  python scripts/youtube.py capa {vid} <capa.jpg>")
+    print(f"  python scripts/youtube.py publica {vid} --como nao-listado")
+
+
+# ----------------------------------------------------------------- exclui
+def cmd_exclui(a):
+    """Apaga um vídeo do canal. NÃO TEM VOLTA — o YouTube não tem lixeira.
+
+    Exige --sim pelo mesmo motivo que `publica --como publico` exige, e
+    imprime o que vai apagar ANTES de apagar: o alvo é um ID de onze
+    caracteres, e dois IDs do mesmo episódio diferem por um caractere.
+    """
+    y = servico()
+    it = y.videos().list(part="snippet,status,fileDetails", id=a.id).execute().get("items")
+    if not it:
+        morre(f"vídeo {a.id} não encontrado nesta conta.")
+    v = it[0]
+    vs = (v.get("fileDetails", {}).get("videoStreams") or [{}])[0]
+    print(f'{a.id}  "{v["snippet"]["title"]}"')
+    print(f'  visibilidade {v["status"]["privacyStatus"]}   '
+          f'fonte {vs.get("widthPixels", "?")}x{vs.get("heightPixels", "?")}   '
+          f'enviado em {v["snippet"]["publishedAt"][:10]}')
+    if not a.sim:
+        print("\n  Apagar é IRREVERSÍVEL: o YouTube não tem lixeira para vídeo,\n"
+              "  e o ID some junto (links e incorporações quebram).\n"
+              "  Repita com --sim para confirmar.")
+        raise SystemExit(2)
+    y.videos().delete(id=a.id).execute()
+    print("\n  excluído.")
 
 
 # ----------------------------------------------------------------- aplica
@@ -298,6 +419,14 @@ def main():
     s.add_argument("--seco", action="store_true", help="mostra o que faria, sem enviar")
     s.set_defaults(f=cmd_aplica)
 
+    s = sub.add_parser("sobe", help="envia o arquivo de vídeo; entra sempre como PRIVADO")
+    s.add_argument("arquivo")
+    s.add_argument("meta", nargs="?", help="arquivo de metadados; dispensável com --como-o")
+    s.add_argument("--como-o", metavar="ID",
+                   help="copia título, descrição, tags e idioma de um vídeo já no ar")
+    s.add_argument("--seco", action="store_true", help="mostra o que faria, sem enviar")
+    s.set_defaults(f=cmd_sobe)
+
     s = sub.add_parser("capa", help="envia a miniatura")
     s.add_argument("id"); s.add_argument("imagem")
     s.set_defaults(f=cmd_capa)
@@ -306,6 +435,11 @@ def main():
     s.add_argument("id")
     s.add_argument("--como", choices=("sim", "nao"), required=True)
     s.set_defaults(f=cmd_infantil)
+
+    s = sub.add_parser("exclui", help="apaga um vídeo do canal (irreversível)")
+    s.add_argument("id")
+    s.add_argument("--sim", action="store_true", help="confirma a exclusão")
+    s.set_defaults(f=cmd_exclui)
 
     s = sub.add_parser("publica", help="muda a visibilidade")
     s.add_argument("id")
