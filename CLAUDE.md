@@ -595,6 +595,57 @@ Transcrever o áudio tratado deu resultado **ligeiramente pior** que transcrever
 Provável efeito do `afftdn` sobre as consoantes. **Consequência prática:
 transcrever sempre do `_norm`, nunca do `_audio`** — que é o que o fluxo já faz.
 
+### O denoise raspa sinal, e agora tem número — 05/09/2026
+
+Medido no cover instrumental do `improviso_3` (violão solo, 60,7s), ao montar a
+cadeia do `violao.sh`. **Neste material não existe piso de ruído**: acima de
+120 Hz as janelas quietas ficam 37 a 58 dB abaixo do espectro médio. Não há o
+que o `afftdn` remova — então o que ele remove é sinal:
+
+| ajuste | Δ agudo nos ataques | Δ profundidade |
+|---|---|---|
+| **`afftdn=nr=10:nf=-30` (o do `audio.sh`)** | **−2,60 ± 0,29 dB** | +0,63 |
+| `nr=6:nf=-40` | −0,68 ± 0,13 | +0,36 |
+| `nr=3:nf=-50` | −0,07 ± 0,05 | +0,08 |
+| `anlmdn` | +0,71 | (atrasa 7,91 ms) |
+
+2,60 dB acima de 4 kHz nos ataques, que num dedilhado é a unha. É a mesma coisa
+que a seção acima já tinha visto pelo outro lado, sem número: as consoantes
+degradadas de `microfonezinhos, olha`. **Confirma a suspeita, não fecha a
+pendência** — a medição é em violão solo, e a cadeia de FALA do `audio.sh` roda
+sobre fala. Trocar `afftdn` por high-pass é o candidato claro, e precisa ser
+medido num episódio com fala antes de entrar.
+
+**Compressor achata o dedilhado; ganho lento entrega o mesmo nivelamento sem
+cobrar nada.** As duas colunas da direita são o preço:
+
+| | Δ espalhamento ST | Δ profundidade | Δ ataque |
+|---|---|---|---|
+| rider ±3 dB | −1,76 LU | **+0,20 dB** | 0,00 ms |
+| `acompressor −18 dB 3:1` (o do `audio.sh`) | −1,63 LU | **−7,66 dB** | −4,96 ms |
+
+Mesmo efeito útil, 7,66 dB de profundidade a menos. Vale a ressalva simétrica à
+do denoise: é violão solo.
+
+**E o rider não é grátis fora do material em que foi calibrado.** O `--rider 3`
+padrão do `violao_dsp.py` custou 1,76 LU de LRA no `improviso_3` — cover de
+andamento firme, BPM 136,00 — e **2,92 LU no `ep00`** (7,71 sem ele, 4,79 com),
+saturando o teto de −1,95 a +3,00 dB. O `ep00` é improviso livre
+(autocorrelação do envelope de ataque com r = 0,174), e a dinâmica larga que ali
+é *música* o rider lê como erro de volume — contra o critério de "LRA: preservar"
+da classe MÚSICA. Em improviso, medir a grade antes de aceitar o padrão
+(0 → 7,71; 1 → 6,19; 1,5 → 5,76; 2 → 5,37; 3 → 4,79) e levar as variantes ao
+ouvido, não ao número. O reverb não é o culpado: ele *alarga* o LRA em +0,31 a
++0,41 LU.
+
+**Medir transiente é pareado, nota a nota.** A primeira comparação de reverb
+acusou a convolução atrasando o ataque em +2,83 ms — com erro-padrão de 1,94 ms
+naquela mediana. Refeito pareado, as nove configurações ficaram entre +0,00 e
++0,04 ms: a diferença não existia. É a mesma lição da métrica que mentiu na
+identidade visual, num sinal em vez de numa cor.
+
+Detalhes e o resto do trabalho em `docs/05-cover-hard-days-night.md`.
+
 ## Legendas — medido em 30/08/2026
 
 `scripts/legenda.py` transforma o sidecar de palavras em `.srt` e `.ass`.
@@ -888,6 +939,27 @@ ilegíveis, e o pior caso é branco sobre parede branca estourada. Com ele, o
 texto passa a ser julgado contra o próprio contorno e o fundo deixa de
 importar. Quem quiser afinar o contorno por estética tem aqui o número a
 vigiar.
+
+### Cartela sobre imagem precisa de scrim, e isso é medição — 05/09/2026
+
+O que vale para a legenda vale mais ainda para a cartela, que é texto parado
+sobre um frame inteiro. Medido nas cartelas do cover do `improviso_3`, banda
+por banda: **não existe faixa horizontal onde branco puro alcance 4,5:1** — o
+p95 de luminância vai de 0,33 a 0,84 nas doze bandas, ou seja 1,2:1 a 2,7:1 em
+qualquer lugar do quadro. Sem scrim, o texto dos créditos mede **1,0:1**:
+branco sobre branco, invisível, sem um único aviso.
+
+Com `scrim_forca = 0,72`: abertura 9,3–10,6:1, créditos 6,5:1, **0,0% de pixel
+abaixo do limiar**, medido no arquivo já encodado. **Procurar a faixa boa do
+frame não é alternativa** — aqui não há faixa boa, e é isso que torna o scrim
+regra e não gosto. É a mesma conclusão que a capa já tinha registrado: o que
+falta é escurecer o fundo, não clarear a letra.
+
+**Ancorar pela caixa de tinta, não pela soma das alturas de linha.** A primeira
+versão da cartela terminava 4 px dentro da safe area — o descendente do `y` mais
+o contorno, que altura de linha nenhuma prevê. Quatro pixels somem atrás dos
+botões do Reels sem nada acusar. Desenhar, medir com `getbbox` e só então
+posicionar.
 
 ### Duas armadilhas silenciosas de ffmpeg
 
