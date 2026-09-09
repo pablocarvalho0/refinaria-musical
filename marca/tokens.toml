@@ -271,6 +271,31 @@ fio_largura = 2          # o fio fino que separa a obra de quem a executou
 
 
 # ---------------------------------------------------------------------------
+# Legenda de harmonia — scripts/harmonia.py
+#
+# Três linhas: rótulo da seção, acordes, funções. SEM scrim, ao contrário das
+# cartelas, e a diferença é de tempo em tela, não de gosto: a cartela fica
+# 6 s, esta legenda fica ~45 dos 60,7 s do cover. O scrim de alfa 0,72
+# escureceria a metade de baixo do quadro o vídeo quase inteiro — 884 mil
+# pixels por frame, medido — bem onde o violão aparece. Quem sustenta o
+# contraste aqui é o contorno, que já foi medido em 11,5:1 no pior caso deste
+# mesmo episódio. Decidido na tela em 06/09/2026.
+#
+# Os acordes são serifados porque são nomes próprios de objetos musicais; as
+# funções vão em caixa alta com tracking porque são rótulos, a mesma divisão
+# de papéis das etiquetas da ficha técnica.
+# ---------------------------------------------------------------------------
+
+[cartela.harmonia]
+tamanho_secao  = 26
+tamanho_acorde = 64
+tamanho_funcao = 30
+altura_secao  = 46
+altura_acorde = 76
+altura_funcao = 40
+
+
+# ---------------------------------------------------------------------------
 # Vertical por empilhamento — scripts/vertical.sh
 #
 # Consumidor: scripts/vertical.sh, que transforma um master horizontal de duas
