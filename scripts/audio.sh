@@ -4,7 +4,7 @@
 # Produz o entregável de áudio a partir do _norm.mp4 do processa.sh, que
 # carrega o vídeo já normalizado e o áudio ainda cru.
 #
-#   FALA    highpass 80 Hz + denoise leve + compressão suave + loudnorm I=-14
+#   FALA    highpass 80 Hz + compressão suave + loudnorm I=-14 — sem denoise
 #   MUSICA  loudnorm I=-14 com LRA alto — sem denoise, sem compressão
 #
 # Uso: ./audio.sh out/ep00/ep00_norm.mp4              (por classe, precisa de segmentos.txt)
@@ -23,11 +23,33 @@
 #    sinal (medido: erro de 0,0 LSB reconstruindo ruído branco), então
 #    não há buraco nem estouro na transição, e nada muda de duração.
 #
-# 2. A latência do afftdn é compensada explicitamente.
-#    Medido com impulso: afftdn atrasa 1200 amostras = 25,00 ms a 48 kHz.
-#    highpass, acompressor e loudnorm têm latência zero. Sem compensar,
-#    a cadeia de fala sairia 25 ms atrasada em relação à de música e a
-#    mistura ficaria com comb filtering na rampa.
+# 2. Não há denoise na cadeia de fala — medido em 06/09/2026.
+#    O afftdn=nr=10:nf=-30 saiu daqui porque PIORA a transcrição, e
+#    piora mais justamente no material barulhento, que era onde ele
+#    deveria ganhar. Transcrevendo a região de FALA com large-v3 e
+#    comparando com a transcrição do áudio cru, que é a que o fluxo usa:
+#
+#      material            atual (nr=10)   leve (nr=3)   SEM denoise
+#      ep00 (interna)          88,2%          88,9%         93,3%
+#      improviso_3 (externa)   74,7%          85,7%         91,1%
+#
+#    A probabilidade média por palavra segue a mesma ordem (ep00 0,866 /
+#    0,887 / 0,895; improviso_3 0,810 / 0,824 / 0,843), e a cadeia atual
+#    é a que mais derruba palavra: o ep00 perde "sei lá" e inventa
+#    "você nem sei se" a partir de "não sei se".
+#
+#    O motivo é que não há piso de ruído banda larga para remover. Nas
+#    janelas quietas, acima de 300 Hz, as duas gravações ficam de 29 a
+#    44 dB abaixo do espectro médio. O que existe na gravação externa é
+#    ronco: −13,5 dB em 60–120 Hz e −22,9 em 120–300. Isso é trabalho de
+#    high-pass, que já está na cadeia — não de subtração espectral.
+#
+#    Com o afftdn fora, some também a compensação de latência: ele era o
+#    único filtro com atraso (1200 amostras = 25,00 ms a 48 kHz, medido
+#    com impulso). highpass, acompressor e loudnorm têm latência zero,
+#    então a cadeia de fala e a de música saem alinhadas por construção.
+#    Se alguém reintroduzir o afftdn, o atrim/apad de 25 ms volta junto,
+#    senão a mistura ganha comb filtering na rampa.
 #
 # 3. loudnorm em DOIS passos com linear=true.
 #    Passo único é um normalizador dinâmico: ele persegue o alvo ao longo
@@ -128,7 +150,6 @@ LRA_FALA="${LRA_FALA:-11}"     # fala: faixa estreita, é o alvo do YouTube
 LRA_MUSICA="${LRA_MUSICA:-20}" # música: faixa larga, para não virar modo dinâmico
 LRA_UNIF="${LRA_UNIF:-11}"     # classe única: alvo padrão do YouTube
 RAMPA="${RAMPA:-0.050}"        # s — largura da transição entre as duas cadeias
-LAT_AFFTDN=0.025               # s — medido com impulso, ver cabeçalho
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
@@ -183,9 +204,10 @@ fi
 # =====================================================================
 # 2. Cadeias por classe
 # =====================================================================
-# atrim+apad depois do afftdn devolve os 25 ms que ele empurra, sem mexer
-# na duração total.
-CAD_FALA="highpass=f=80,afftdn=nr=10:nf=-30,atrim=start=${LAT_AFFTDN},asetpts=PTS-STARTPTS,apad=pad_dur=${LAT_AFFTDN},acompressor=threshold=-18dB:ratio=3:attack=15:release=200"
+# Sem denoise: ele piorava a transcrição e não tinha ruído para remover.
+# Ver o item 2 do cabeçalho. Nenhum filtro daqui tem latência, então não
+# há o que compensar.
+CAD_FALA="highpass=f=80,acompressor=threshold=-18dB:ratio=3:attack=15:release=200"
 CAD_MUSICA="anull"
 
 # =====================================================================
