@@ -6,3 +6,6 @@ models/
 __pycache__/
 *.pyc
 .secrets/
+.gstack/
+.claude/
+.vscode/
