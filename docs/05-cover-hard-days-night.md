@@ -149,6 +149,13 @@ constante, então a curva fica abaixo do piso e só dispara no acorde final.
 
 ## O que este trabalho ensinou e vale para os outros episódios
 
+> **Atualização de 11/09/2026.** O candidato desta seção virou decisão: o
+> `afftdn` saiu da cadeia de FALA do `audio.sh` em 06/09/2026, medido em
+> episódio com fala, que era a metade que faltava. A transcrição melhora sem
+> ele (ep00 88,2% → 93,3%; gravação externa 74,7% → 91,1%), e a compensação de
+> latência de 25 ms saiu junto. A medição abaixo continua valendo como o
+> registro de **por que** ele saiu — e a tabela diz "atual" no estado de 05/09.
+
 **O denoise do `audio.sh` está raspando sinal, e agora tem número.** Neste
 material **não existe piso de ruído**: acima de 120 Hz as janelas quietas ficam
 37 a 58 dB abaixo do espectro médio. O `afftdn=nr=10:nf=-30` come

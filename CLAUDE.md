@@ -457,6 +457,10 @@ resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o times
 
 ## Documentos
 
+O índice completo, com o estado de cada um, está em **`docs/README.md`**. O
+`README.md` da raiz é a porta de entrada do repositório — o que o pipeline faz
+hoje, como instalar e como rodar um episódio ponta a ponta.
+
 - `docs/00-plano-inicial.md` — registro histórico. **Superado.** Descreve o
   auto-editor como parte do escopo; foi removido. Não seguir.
 - `docs/01-arquitetura-segmentacao.md` — arquitetura da Fase 1, com as medições
@@ -469,6 +473,9 @@ resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o times
   da mesma música, medido em 30/08/2026 nos dois projetos de `~/Music/
   Projetos`. **Ler antes de tentar casar duas tomadas por correlação** — a
   correlação global falha em música repetitiva e falha mentindo.
+- `docs/04-identidade.md` — o porquê de cada número de `marca/tokens.toml`:
+  paleta, tipografia, contorno, scrim e a lição sobre métrica que mente.
+  **Ler antes de mexer em cor, fonte ou safe area.**
 - `docs/05-cover-hard-days-night.md` — o cover instrumental vertical do
   `improviso_3`, medido em 05/09/2026: cadeia de áudio sem denoise e sem
   compressor, reverb por convolução, cartelas com scrim e a análise de seções.
@@ -480,6 +487,46 @@ resolve — ao dizer "aqui entra o empréstimo modal", o Whisper carimba o times
   frame**: `in_w` no `crop` não acompanha um `scale` com `eval=frame`, e o
   vídeo sai deslocado sem um único aviso. Três variantes de ritmo aguardam
   validação em `out/improviso_3/testes-dinamica/`.
+- `docs/07-ep00-edicao.md` — o ep00: áudio pronto (com o violão pelo
+  `violao.sh`) e plano de edição de imagem **proposto e não executado**. Era um
+  segundo `06`; renumerado em 11/09/2026.
+- `docs/fluxo-geral-teste/00-ideia-inicial.md` — plano de conteúdo tirado das
+  métricas do Instagram. É frente editorial, não de pipeline.
+
+## Catálogo de scripts
+
+O fluxo acima usa nove; o repositório tem trinta e poucos. Esta tabela existe
+para achar o que já foi escrito antes de escrever de novo — cada um tem o
+porquê no próprio cabeçalho.
+
+| script | para quê |
+|---|---|
+| `sonda.sh` | geometria do `inbox` antes de processar |
+| `processa.sh` | master → `_norm.mp4` + `.wav`; resolve a orientação |
+| `transcreve.sh` / `.py` | Whisper na GPU; o `.sh` é o ponto de entrada |
+| `segmenta.py` | FALA/MÚSICA e a zona cinzenta |
+| `audio.sh` | o entregável de áudio, cadeia por classe |
+| `violao.sh` / `violao_dsp.py` | violão solo: reverb e rider, sem compressor |
+| `mede-audio.sh` | QA de loudness, total e por classe |
+| `legenda.py` + `glossario.tsv` | cues `.srt`/`.ass`, ritmo por formato |
+| `corta.sh` | aplica o `cortes.txt` |
+| `vertical.sh` | horizontal → 9:16 empilhado, resolução calculada |
+| `dinamica.sh` + `camera.py` | câmera virtual sobre plano fixo |
+| `zoom-cmds.py` | o zoom por `sendcmd` do `vertical.sh` (ver a nota do `camera.py`) |
+| `cartelas.py` / `cartelas.sh` | a peça de **cover**: obra, autoria, ano |
+| `cartelas_improviso.py` + `monta-cartelas.sh` | peça de improviso; o `monta` aceita lista arbitrária |
+| `marca.py` | logo, thumb, post, story, a partir dos tokens |
+| `carrossel.py` | carrossel 1080x1350 de Instagram |
+| `capa.py` / `capa_arte.py` | candidatos a capa e a arte final |
+| `valida-legenda.py` / `-cartela.py` / `-marca.py` | contraste WCAG sobre o vídeo real |
+| `grade-musical.py` | BPM, tempos fortes, `--encaixa` |
+| `secoes.py` | fronteiras de seção e centro tonal |
+| `harmonia.py` | a legenda de harmonia, a partir do que o autor decidiu |
+| `youtube.py` | sobe, escreve metadado, capa, publica, exclui |
+| `alinha-faixas.py` / `mixa-alinhado.sh` | sincronismo entre tomadas (fora do fluxo) |
+| `gabarito-safe-area.sh` | vídeo-régua para medir a safe area no app |
+| `lib.sh` / `projeto.py` | `ffmpeg_lim`, geometria e a pasta por projeto |
+| `testa-projeto.sh` | impede os dois espelhos da regra de projeto de divergirem |
 
 ## Segmentação fala/música (Fase 1 — passo 2 feito)
 
@@ -537,6 +584,12 @@ Detalhes em `docs/01-arquitetura-segmentacao.md`.
 
 ## Tratamento de áudio por classe — medido em 24/08/2026
 
+> **As cadeias mudaram em 06/09/2026: não há mais denoise em nenhuma das
+> duas.** Hoje a de FALA é `highpass=f=80` + `acompressor` + `loudnorm` em dois
+> passos, e a de MÚSICA é só o `loudnorm`. A tabela abaixo é da medição
+> original, com `afftdn`; os alvos e o método (máscara com rampa, dois passos,
+> medição por classe) continuam valendo. Ver "O denoise saiu da cadeia de FALA".
+
 `scripts/audio.sh` aplica cadeias distintas a FALA e MÚSICA e remonta.
 Comparado ao `loudnorm` uniforme do `processa.sh`, no `ep00` (= `video_0`):
 
@@ -582,7 +635,9 @@ Três resultados que justificam o script:
   a cada execução; verificado depois: 0 amostras de lag.
 - **Latência do `afftdn`: 25,00 ms (1200 amostras)**, medida com impulso.
   `highpass`, `acompressor` e `loudnorm` são de latência zero. Sem compensar, a
-  cadeia de fala sairia 25 ms atrasada em relação à de música.
+  cadeia de fala sairia 25 ms atrasada em relação à de música. **Com o denoise
+  fora (06/09/2026) a compensação saiu junto** — nenhum filtro da cadeia atual
+  atrasa. Quem reintroduzir o `afftdn` reintroduz o `atrim`/`apad` de 25 ms.
 - **Máscara com rampa, não concat.** As duas cadeias rodam sobre o áudio inteiro
   em paralelo e são misturadas por uma máscara trapezoidal de 50 ms. Verificado
   com sinal DC: as duas máscaras somam **1,000000 em todas as amostras**, e
@@ -622,10 +677,33 @@ que o `afftdn` remova — então o que ele remove é sinal:
 
 2,60 dB acima de 4 kHz nos ataques, que num dedilhado é a unha. É a mesma coisa
 que a seção acima já tinha visto pelo outro lado, sem número: as consoantes
-degradadas de `microfonezinhos, olha`. **Confirma a suspeita, não fecha a
-pendência** — a medição é em violão solo, e a cadeia de FALA do `audio.sh` roda
-sobre fala. Trocar `afftdn` por high-pass é o candidato claro, e precisa ser
-medido num episódio com fala antes de entrar.
+degradadas de `microfonezinhos, olha`. A medição é em violão solo, e a cadeia de
+FALA roda sobre fala — a metade que faltava foi medida no dia seguinte.
+
+### O denoise saiu da cadeia de FALA — 06/09/2026
+
+O candidato virou decisão, e o número que decidiu não é de timbre: é de
+**transcrição**. Transcrevendo a região de FALA com `large-v3` e comparando com
+a transcrição do áudio cru, que é a que o fluxo usa:
+
+| material | `nr=10` (o antigo) | `nr=3` | **sem denoise** |
+|---|---|---|---|
+| ep00 (interna) | 88,2% | 88,9% | **93,3%** |
+| improviso_3 (externa) | 74,7% | 85,7% | **91,1%** |
+
+A probabilidade média por palavra segue a mesma ordem, e a cadeia antiga é a que
+mais derruba palavra: o `ep00` perde "sei lá" e inventa "você nem sei se" a
+partir de "não sei se". **Ele piorava mais justamente na gravação externa**, que
+era onde deveria ganhar — porque não há piso de ruído banda larga para remover.
+Nas janelas quietas, acima de 300 Hz, as duas gravações ficam de 29 a 44 dB
+abaixo do espectro médio. O que existe na externa é ronco (−13,5 dB em
+60–120 Hz), e ronco é trabalho de high-pass, que já estava na cadeia.
+
+A cadeia de FALA hoje é `highpass=f=80,acompressor=threshold=-18dB:ratio=3`, e
+a de MÚSICA é `anull` + `loudnorm`. **O compressor continua ali**, e o preço
+dele medido abaixo segue sendo uma pendência aberta — em violão solo o
+`violao.sh` já o substituiu pelo rider; numa cadeia de fala isso não foi
+medido.
 
 **Compressor achata o dedilhado; ganho lento entrega o mesmo nivelamento sem
 cobrar nada.** As duas colunas da direita são o preço:
@@ -1170,9 +1248,11 @@ enviar nada.
   `license`, `embeddable`, `publicStatsViewable` e `selfDeclaredMadeForKids`.
   Reenviar um derivado como `madeForKids` faz a chamada falhar.
 - **Cota**: `lista` 1 unidade, `aplica` 50, `capa` 50, `publica` 50, contra
-  10.000 por dia. Irrelevante. Só `videos.insert` pesaria (1600) — e o upload
-  não está no script de propósito: subir pelo Studio dá barra de progresso e
-  retomada, que a API não dá.
+  10.000 por dia. O `sobe` é o único caro: `videos.insert` custa **1600**, ou
+  seja, seis uploads por dia e a cota acaba. Na prática não incomoda — mas é o
+  número a lembrar antes de subir variantes para comparar. (Esta linha dizia que
+  o upload ficava fora do script de propósito; o argumento caiu em 08/09/2026,
+  ver "O upload entrou no script".)
 - Segredos em `.secrets/` (modo 700, arquivos 600, no `.gitignore`). O
   `client_secret.json` precisa ser do tipo **App para computador**; um cliente
   `web` exige URI de redirecionamento cadastrada e o fluxo local falha.
@@ -1329,8 +1409,10 @@ mais apertado que o master permite, tela cheia, que depois **afasta** até o
 plano geral. A ordem final é fechado → geral → empilhado, e cada transição
 diz uma coisa: o afastamento apresenta a sala, a divisão apresenta os dois.
 
-**Nenhum filtro de zoom deste ffmpeg serve, e vale saber por quê antes de
-tentar de novo:**
+**Nenhum filtro de zoom DEDICADO deste ffmpeg serve, e vale saber por quê
+antes de tentar de novo** — a ressalva importa: o `scale` comum resolve, e
+desde 05/09/2026 sabe-se que ele resolve de duas maneiras (ver a nota logo
+abaixo da tabela):
 
 | | por que não |
 |---|---|
@@ -1341,6 +1423,15 @@ O que funciona é `scale`, cujos `w`/`h` são ajustáveis em runtime (o flag `T`
 em `ffmpeg -h filter=scale`). `scripts/zoom-cmds.py` gera um comando por
 frame do master e o `sendcmd` os aplica. **Cada frame continua sendo uma
 redução direta do 8K** — em nenhum instante se amplia algo já reduzido.
+
+> **O `sendcmd` não era necessário.** O `scale` deste ffmpeg aceita
+> `eval=frame`, e aí a animação inteira cabe em duas expressões de `t`, sem
+> arquivo de comandos e sem risco de comando perdido — medido em 05/09/2026 ao
+> escrever o `camera.py`, que é o caminho novo. O `zoom-cmds.py` nasceu supondo
+> que só o `sendcmd` alcançava `w`/`h` e continua funcionando; o `vertical.sh`
+> ainda o usa. **Quem for reescrever esse trecho leia antes o
+> `docs/06-camera-virtual.md`**: com `eval=frame`, `in_w` no `crop` para de
+> acompanhar, e o vídeo sai deslocado sem um único aviso.
 
 **O recentramento se prende à escala, não ao relógio.** A expressão de `x`
 do `overlay` lê `overlay_w`, que é a largura que o `sendcmd` acabou de
@@ -1537,14 +1628,15 @@ de quem é o nome ao lado, sem inferir pela ordem de aparição.
       no mesmo dia em que os dois primeiros verticais entraram no `inbox`
       (`improviso_3` e `20260717_113135`, ambos `rotation=-90`). Ver
       "Orientação do master", acima.
-- [~] Os parâmetros das cadeias do `audio.sh` (`afftdn=nr=10:nf=-30`,
-      `acompressor` em −18 dB / 3:1) foram escolhidos por convenção, e agora
-      estão medidos **em violão solo**: o denoise come 2,60 ± 0,29 dB de agudo
-      nos ataques sem ter ruído para remover, e o compressor cobra 7,66 dB de
-      profundidade para entregar o nivelamento que o rider entrega de graça.
-      Ver "O denoise raspa sinal". **Falta a metade que importa para estas
-      cadeias**: medir em episódio com fala, que é onde o `afftdn` roda. Só
-      então trocar por high-pass.
+- [~] Os parâmetros das cadeias do `audio.sh` foram escolhidos por convenção.
+      **Metade resolvida:** o `afftdn` saiu em 06/09/2026, medido em fala nos
+      dois materiais — a transcrição melhora de 88,2% para 93,3% na gravação
+      interna e de 74,7% para 91,1% na externa. Ver "O denoise saiu da cadeia
+      de FALA". **Falta o compressor** (−18 dB / 3:1): em violão solo ele cobra
+      7,66 dB de profundidade para entregar o nivelamento que o rider entrega
+      de graça, e o `violao.sh` já o trocou ali. Numa cadeia de FALA a troca
+      não foi medida — e fala não é dedilhado, então o número do violão não
+      transfere. Medir antes de mexer.
 
 - [x] ~~`improviso_4` está montado e não publicado~~ — **publicado em
       08/09/2026**, em 4K: `youtu.be/EiCNIQieb_o`. O entregável é
